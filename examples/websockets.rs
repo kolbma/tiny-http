@@ -1,5 +1,5 @@
 extern crate rustc_serialize;
-extern crate sha1;
+extern crate sha1_smol;
 extern crate tiny_http;
 
 use std::io::Cursor;
@@ -41,7 +41,7 @@ fn home_page(port: u16) -> tiny_http::Response<Cursor<Vec<u8>>> {
 /// Turns a Sec-WebSocket-Key into a Sec-WebSocket-Accept.
 /// Feel free to copy-paste this function, but please use a better error handling.
 fn convert_key(input: &str) -> String {
-    use sha1::Sha1;
+    use sha1_smol::Sha1;
 
     let mut input = input.to_string().into_bytes();
     let mut bytes = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
