@@ -25,6 +25,62 @@ fn basic_string_input() {
 }
 
 #[test]
+fn empty_input() {
+    let (server, client) = support::new_one_server_one_client();
+
+    {
+        let mut client = client;
+        (write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")).unwrap();
+    }
+
+    let mut request = server.recv().unwrap();
+
+    let mut output = String::new();
+    request.as_reader().read_to_string(&mut output).unwrap();
+    assert_eq!(output, "");
+}
+
+#[test]
+fn empty_string_input() {
+    let (server, client) = support::new_one_server_one_client();
+
+    {
+        let mut client = client;
+        (write!(
+            client,
+            "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain; charset=utf8\r\n\r\n"
+        ))
+        .unwrap();
+    }
+
+    let mut request = server.recv().unwrap();
+
+    let mut output = String::new();
+    request.as_reader().read_to_string(&mut output).unwrap();
+    assert_eq!(output, "");
+}
+
+#[test]
+fn empty_json_input() {
+    let (server, client) = support::new_one_server_one_client();
+
+    {
+        let mut client = client;
+        (write!(
+            client,
+            "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json; charset=utf8\r\nContent-Length: 0\r\n\r\n"
+        ))
+        .unwrap();
+    }
+
+    let mut request = server.recv().unwrap();
+
+    let mut output = String::new();
+    request.as_reader().read_to_string(&mut output).unwrap();
+    assert_eq!(output, "");
+}
+
+#[test]
 fn wrong_content_length() {
     let (server, client) = support::new_one_server_one_client();
 
