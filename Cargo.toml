@@ -17,18 +17,18 @@ ssl-openssl = ["openssl", "zeroize"]
 ssl-rustls = ["rustls", "rustls-pemfile", "zeroize"]
 
 [dependencies]
-ascii = "1.0"
+ascii = "1.1"
 chunked_transfer = "1"
-log = "0.4.4"
-httpdate = "1.0.2"
+log = "0.4.20"
+httpdate = "1.0.3"
 
 openssl = { version = "0.10", optional = true }
-rustls = { version = "0.21.7", optional = true }
-rustls-pemfile = { version = "1.0.3", optional = true }
+rustls = { version = "0.22.2", optional = true }
+rustls-pemfile = { version = "2.0.0", optional = true }
 zeroize = { version = "1", optional = true }
 
 [dev-dependencies]
-fdlimit = "0.2.1"
+fdlimit = "0.3.0"
 rustc-serialize = "0.3"
 sha1_smol = "1.0.0"
 
