@@ -1,7 +1,6 @@
 use std::io::Read;
 use std::io::Result as IoResult;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Sender;
 
 /// A `Reader` that reads exactly the number of bytes from a sub-reader.
 ///
@@ -14,23 +13,19 @@ where
 {
     reader: R,
     size: usize,
-    last_read_signal: Sender<IoResult<()>>,
+    last_read_signal: Option<Sender<IoResult<()>>>,
 }
 
 impl<R> EqualReader<R>
 where
     R: Read,
 {
-    pub fn new(reader: R, size: usize) -> (EqualReader<R>, Receiver<IoResult<()>>) {
-        let (tx, rx) = channel();
-
-        let r = EqualReader {
+    pub fn new(reader: R, size: usize, tx: Option<Sender<IoResult<()>>>) -> Self {
+        Self {
             reader,
             size,
             last_read_signal: tx,
-        };
-
-        (r, rx)
+        }
     }
 }
 
@@ -49,13 +44,9 @@ where
             &mut buf[..self.size]
         };
 
-        match self.reader.read(buf) {
-            Ok(len) => {
-                self.size -= len;
-                Ok(len)
-            }
-            err @ Err(_) => err,
-        }
+        let len = self.reader.read(buf)?;
+        self.size -= len;
+        Ok(len)
     }
 }
 
@@ -64,24 +55,26 @@ where
     R: Read,
 {
     fn drop(&mut self) {
-        let mut remaining_to_read = self.size;
+        let mut buf = vec![0; if self.size > 4096 { 4096 } else { self.size }];
 
-        while remaining_to_read > 0 {
-            let mut buf = vec![0; remaining_to_read];
-
+        while self.size > 0 {
             match self.reader.read(&mut buf) {
-                Err(e) => {
-                    self.last_read_signal.send(Err(e)).ok();
-                    break;
-                }
                 Ok(0) => {
-                    self.last_read_signal.send(Ok(())).ok();
+                    if let Some(last_read_signal) = &self.last_read_signal {
+                        last_read_signal.send(Ok(())).ok();
+                    }
                     break;
                 }
-                Ok(other) => {
-                    remaining_to_read -= other;
+                Ok(nr_bytes) => self.size -= nr_bytes,
+                Err(e) => {
+                    if let Some(last_read_signal) = &self.last_read_signal {
+                        last_read_signal.send(Err(e)).ok();
+                    }
+                    break;
                 }
             }
+
+            buf.truncate(self.size);
         }
     }
 }
@@ -89,16 +82,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::EqualReader;
-    use std::io::Read;
+    use std::io::{Cursor, Read};
 
     #[test]
     fn test_limit() {
-        use std::io::Cursor;
-
         let mut org_reader = Cursor::new("hello world".to_string().into_bytes());
 
         {
-            let (mut equal_reader, _) = EqualReader::new(org_reader.by_ref(), 5);
+            let mut equal_reader = EqualReader::new(org_reader.by_ref(), 5, None);
 
             let mut string = String::new();
             equal_reader.read_to_string(&mut string).unwrap();
@@ -111,13 +102,43 @@ mod tests {
     }
 
     #[test]
-    fn test_not_enough() {
-        use std::io::Cursor;
+    fn test_equal_reader_drop() {
+        let data = b"hello world";
+        let reader = Cursor::new(data);
+        let mut string = String::new();
 
+        let mut equal_reader = EqualReader::new(reader.clone(), 5, None);
+        equal_reader.read_to_string(&mut string).unwrap();
+        assert_eq!(string, "hello");
+
+        string.clear();
+        equal_reader.read_to_string(&mut string).unwrap();
+        assert_eq!(string.len(), 0);
+        drop(equal_reader);
+
+        let mut equal_reader = EqualReader::new(reader.clone(), data.len() + 1, None);
+        string.clear();
+        equal_reader.read_to_string(&mut string).unwrap();
+        assert_eq!(string.len(), data.len());
+        drop(equal_reader);
+
+        let equal_reader = EqualReader::new(reader.clone(), data.len() + 1, None);
+        assert_eq!(equal_reader.size, data.len() + 1);
+        drop(equal_reader);
+
+        let mut equal_reader = EqualReader::new(reader.clone(), 0, None);
+        string.clear();
+        equal_reader.read_to_string(&mut string).unwrap();
+        assert_eq!(string.len(), 0);
+        drop(equal_reader);
+    }
+
+    #[test]
+    fn test_not_enough() {
         let mut org_reader = Cursor::new("hello world".to_string().into_bytes());
 
         {
-            let (mut equal_reader, _) = EqualReader::new(org_reader.by_ref(), 5);
+            let mut equal_reader = EqualReader::new(org_reader.by_ref(), 5, None);
 
             let mut vec = [0];
             equal_reader.read_exact(&mut vec).unwrap();

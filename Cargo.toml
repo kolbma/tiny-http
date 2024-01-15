@@ -28,9 +28,12 @@ rustls-pemfile = { version = "1.0.3", optional = true }
 zeroize = { version = "1", optional = true }
 
 [dev-dependencies]
+fdlimit = "0.2.1"
 rustc-serialize = "0.3"
 sha1_smol = "1.0.0"
-fdlimit = "0.2.1"
+
+[target.'cfg(unix)'.dev-dependencies]
+rlimit = "0.10.1"
 
 [package.metadata.docs.rs]
 # Enable just one SSL implementation
