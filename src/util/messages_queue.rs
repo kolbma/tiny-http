@@ -78,8 +78,8 @@ where
                 None => (),
             }
             let now = Instant::now();
-            let (_queue, result) = self.condvar.wait_timeout(queue, timeout).unwrap();
-            queue = _queue;
+            let (next_queue, result) = self.condvar.wait_timeout(queue, timeout).unwrap();
+            queue = next_queue;
             let sleep_time = now.elapsed();
             duration = if duration > sleep_time {
                 duration - sleep_time

@@ -79,7 +79,7 @@ fn build_date_header() -> Header {
 fn write_message_header<W>(
     mut writer: W,
     http_version: &HTTPVersion,
-    status_code: &StatusCode,
+    status_code: StatusCode,
     headers: &[Header],
 ) -> IoResult<()>
 where
@@ -96,7 +96,7 @@ where
     )?;
 
     // writing headers
-    for header in headers.iter() {
+    for header in headers {
         writer.write_all(header.field.as_str().as_ref())?;
         write!(&mut writer, ": ")?;
         writer.write_all(header.value.as_str().as_ref())?;
@@ -147,7 +147,7 @@ fn choose_transfer_encoding(
             parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
 
             // trying to parse each requested encoding
-            for value in parse.iter() {
+            for value in parse {
                 // q=0 are ignored
                 if value.1 <= 0.0 {
                     continue;
@@ -209,13 +209,13 @@ where
         };
 
         for h in headers {
-            response.add_header(h)
+            response.add_header(h);
         }
 
         // dummy implementation
         if let Some(additional_headers) = additional_headers {
-            for h in additional_headers.iter() {
-                response.add_header(h)
+            for h in additional_headers {
+                response.add_header(h);
             }
         }
 
@@ -266,7 +266,7 @@ where
         // if the header is Content-Length, setting the data length
         if header.field.equiv("Content-Length") {
             if let Ok(val) = usize::from_str(header.value.as_str()) {
-                self.data_length = Some(val)
+                self.data_length = Some(val);
             }
 
             return;
@@ -334,7 +334,7 @@ where
     pub fn raw_print<W: Write>(
         mut self,
         mut writer: W,
-        http_version: HTTPVersion,
+        http_version: &HTTPVersion,
         request_headers: &[Header],
         do_not_send_body: bool,
         upgrade: Option<&str>,
@@ -413,7 +413,7 @@ where
                         format!("{}", data_length).as_bytes(),
                     )
                     .unwrap(),
-                )
+                );
             }
 
             _ => (),
@@ -423,7 +423,7 @@ where
         write_message_header(
             writer.by_ref(),
             &http_version,
-            &self.status_code,
+            self.status_code,
             &self.headers,
         )?;
 

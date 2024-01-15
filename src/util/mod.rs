@@ -3,8 +3,8 @@ pub use self::equal_reader::EqualReader;
 pub use self::fused_reader::FusedReader;
 pub use self::messages_queue::MessagesQueue;
 pub use self::refined_tcp_stream::RefinedTcpStream;
+pub use self::sequential::SequentialWriterBuilder;
 pub use self::sequential::{SequentialReader, SequentialReaderBuilder};
-pub use self::sequential::{SequentialWriter, SequentialWriterBuilder};
 pub use self::task_pool::TaskPool;
 
 use std::str::FromStr;

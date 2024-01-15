@@ -127,7 +127,7 @@ impl<R: Read + Send> Read for SequentialReader<R> {
 impl<W: Write + Send> Write for SequentialWriter<W> {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         if let Some(v) = self.trigger.as_mut() {
-            v.recv().unwrap()
+            v.recv().unwrap();
         }
         self.trigger = None;
 
@@ -136,7 +136,7 @@ impl<W: Write + Send> Write for SequentialWriter<W> {
 
     fn flush(&mut self) -> IoResult<()> {
         if let Some(v) = self.trigger.as_mut() {
-            v.recv().unwrap()
+            v.recv().unwrap();
         }
         self.trigger = None;
 

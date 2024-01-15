@@ -58,7 +58,7 @@ impl TaskPool {
         };
 
         for _ in 0..MIN_THREADS {
-            pool.add_thread(None)
+            pool.add_thread(None);
         }
 
         pool

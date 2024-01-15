@@ -312,7 +312,7 @@ impl Request {
         response
             .raw_print(
                 self.response_writer.as_mut().unwrap().by_ref(),
-                self.http_version.clone(),
+                &self.http_version,
                 &self.headers,
                 false,
                 Some(protocol),
@@ -363,7 +363,7 @@ impl Request {
             let msg = Response::new_empty(StatusCode(100));
             msg.raw_print(
                 self.response_writer.as_mut().unwrap().by_ref(),
-                self.http_version.clone(),
+                &self.http_version,
                 &self.headers,
                 true,
                 None,
@@ -450,7 +450,7 @@ impl Request {
 
         Self::ignore_client_closing_errors(response.raw_print(
             writer.by_ref(),
-            self.http_version.clone(),
+            &self.http_version,
             &self.headers,
             do_not_send_body,
             None,
@@ -461,10 +461,10 @@ impl Request {
 
     fn ignore_client_closing_errors(result: io::Result<()>) -> io::Result<()> {
         result.or_else(|err| match err.kind() {
-            ErrorKind::BrokenPipe => Ok(()),
-            ErrorKind::ConnectionAborted => Ok(()),
-            ErrorKind::ConnectionRefused => Ok(()),
-            ErrorKind::ConnectionReset => Ok(()),
+            ErrorKind::BrokenPipe
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::ConnectionRefused
+            | ErrorKind::ConnectionReset => Ok(()),
             _ => Err(err),
         })
     }

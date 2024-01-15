@@ -230,7 +230,7 @@ impl Iterator for ClientConnection {
                     let writer = self.sink.next().unwrap();
                     let response = Response::new_empty(StatusCode(400));
                     response
-                        .raw_print(writer, HTTPVersion(1, 1), &[], false, None)
+                        .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
                         .ok();
                     return None; // we don't know where the next request would start,
                                  // se we have to close
@@ -239,7 +239,7 @@ impl Iterator for ClientConnection {
                 Err(ReadError::WrongHeader(ver)) => {
                     let writer = self.sink.next().unwrap();
                     let response = Response::new_empty(StatusCode(400));
-                    response.raw_print(writer, ver, &[], false, None).ok();
+                    response.raw_print(writer, &ver, &[], false, None).ok();
                     return None; // we don't know where the next request would start,
                                  // se we have to close
                 }
@@ -249,7 +249,7 @@ impl Iterator for ClientConnection {
                     let writer = self.sink.next().unwrap();
                     let response = Response::new_empty(StatusCode(408));
                     response
-                        .raw_print(writer, HTTPVersion(1, 1), &[], false, None)
+                        .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
                         .ok();
                     return None; // closing the connection
                 }
@@ -257,7 +257,7 @@ impl Iterator for ClientConnection {
                 Err(ReadError::ExpectationFailed(ver)) => {
                     let writer = self.sink.next().unwrap();
                     let response = Response::new_empty(StatusCode(417));
-                    response.raw_print(writer, ver, &[], true, None).ok();
+                    response.raw_print(writer, &ver, &[], true, None).ok();
                     return None; // TODO: should be recoverable, but needs handling in case of body
                 }
 
@@ -273,7 +273,7 @@ impl Iterator for ClientConnection {
                         let writer = self.sink.next().unwrap();
                         let response = Response::new_empty(status);
                         response
-                            .raw_print(writer, HTTPVersion(1, 1), &[], false, None)
+                            .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
                             .ok();
                         return None; // closing the connection
                     } else {
@@ -294,7 +294,7 @@ impl Iterator for ClientConnection {
                 )
                 .with_status_code(StatusCode(505));
                 response
-                    .raw_print(writer, HTTPVersion(1, 1), &[], false, None)
+                    .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
                     .ok();
                 continue;
             }
@@ -314,7 +314,7 @@ impl Iterator for ClientConnection {
                 Some(ref val)
                     if !val.contains("keep-alive") && *rq.http_version() == HTTPVersion(1, 0) =>
                 {
-                    self.no_more_requests = true
+                    self.no_more_requests = true;
                 }
                 None if *rq.http_version() == HTTPVersion(1, 0) => self.no_more_requests = true,
                 _ => (),
