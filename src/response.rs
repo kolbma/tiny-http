@@ -342,7 +342,7 @@ where
         let mut transfer_encoding = Some(choose_transfer_encoding(
             self.status_code,
             request_headers,
-            &http_version,
+            http_version,
             &self.data_length,
             false, /* TODO */
             self.chunked_threshold(),
@@ -422,7 +422,7 @@ where
         // sending headers
         write_message_header(
             writer.by_ref(),
-            &http_version,
+            http_version,
             self.status_code,
             &self.headers,
         )?;
