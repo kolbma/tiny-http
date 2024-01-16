@@ -55,10 +55,17 @@ where
     R: Read,
 {
     fn drop(&mut self) {
-        let mut buf = vec![0; if self.size > 4096 { 4096 } else { self.size }];
+        if self.size == 0 {
+            return;
+        }
+
+        let mut buf = &mut [0u8; 256][..];
+        if self.size < 256 {
+            buf = &mut buf[..self.size];
+        }
 
         while self.size > 0 {
-            match self.reader.read(&mut buf) {
+            match self.reader.read(buf) {
                 Ok(0) => {
                     if let Some(last_read_signal) = &self.last_read_signal {
                         last_read_signal.send(Ok(())).ok();
@@ -74,7 +81,9 @@ where
                 }
             }
 
-            buf.truncate(self.size);
+            if self.size < 256 {
+                buf = &mut buf[..self.size];
+            }
         }
     }
 }
