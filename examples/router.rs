@@ -1,3 +1,4 @@
+#[cfg(feature = "log")]
 use log::error;
 use std::{
     collections::HashMap,
@@ -57,7 +58,10 @@ fn main() {
             }
         };
         if let Err(err) = response_result {
+            #[cfg(feature = "log")]
             error!("{err}");
+            #[cfg(not(feature = "log"))]
+            eprintln!("{err:#?}");
         }
     }
 }
