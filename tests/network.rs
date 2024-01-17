@@ -161,10 +161,10 @@ fn responses_reordered() {
 fn no_transfer_encoding_on_204() {
     let (server, mut client) = support::new_one_server_one_client();
 
-    (write!(
+    write!(
         client,
         "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
-    ))
+    )
     .unwrap();
 
     thread::spawn(move || {
@@ -181,38 +181,52 @@ fn no_transfer_encoding_on_204() {
     assert!(!content.contains("Transfer-Encoding: chunked"));
 }
 
-/* FIXME: uncomment and fix
 #[test]
-fn connection_timeout() {
+#[cfg(feature = "socket2")]
+fn connection_timeout() -> Result<(), std::io::Error> {
+    use std::time::{Duration, Instant};
+    use tiny_http::ServerConfig;
+
     let (server, mut client) = {
-        let server = tiny_http::ServerBuilder::new()
-            .with_client_connections_timeout(3000)
-            .with_random_port().build().unwrap();
-        let port = server.server_addr().port();
+        let server = tiny_http::Server::new(ServerConfig {
+            addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
+            socket_config: tiny_http::SocketConfig {
+                read_timeout: Duration::from_millis(500),
+                write_timeout: Duration::from_millis(500),
+                ..tiny_http::SocketConfig::default()
+            },
+            ssl: None,
+        })
+        .unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
         let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
         (server, client)
     };
 
-    let (tx_stop, rx_stop) = mpsc::channel();
+    let now = Instant::now();
 
-    // executing server in parallel
-    thread::spawn(move || {
-        loop {
-            server.try_recv();
-            thread::sleep(Duration::from_millis(100));
-            if rx_stop.try_recv().is_ok() { break }
-        }
+    write!(client, "GET / HTTP/1.").unwrap();
+
+    let h = thread::spawn(move || {
+        let rq = server.recv_timeout(Duration::from_secs(2));
+        assert!(rq.is_err());
     });
 
-    // waiting for the 408 response
-    let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
-    assert!(&content[9..].starts_with("408"));
+    // thread::sleep(Duration::from_millis(3000));
 
-    // stopping server
-    tx_stop.send(());
+    let _ = h.join();
+
+    let elaps = now.elapsed();
+    assert!(
+        elaps > Duration::from_millis(490) && elaps < Duration::from_millis(540),
+        "elaps: {}",
+        elaps.as_millis()
+    );
+
+    drop(client);
+
+    Ok(())
 }
-*/
 
 #[test]
 fn chunked_threshold() {
