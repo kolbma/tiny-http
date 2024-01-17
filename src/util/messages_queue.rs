@@ -49,7 +49,7 @@ where
             match queue.pop_front() {
                 Some(Control::Elem(value)) => return Some(value),
                 Some(Control::Unblock) => return None,
-                None => (),
+                None => {}
             }
 
             queue = self.condvar.wait(queue).unwrap();
@@ -75,7 +75,7 @@ where
             match queue.pop_front() {
                 Some(Control::Elem(value)) => return Some(value),
                 Some(Control::Unblock) => return None,
-                None => (),
+                None => {}
             }
             let now = Instant::now();
             let (next_queue, result) = self.condvar.wait_timeout(queue, timeout).unwrap();
@@ -84,7 +84,7 @@ where
             duration = if duration > sleep_time {
                 duration - sleep_time
             } else {
-                Duration::from_millis(0)
+                Duration::ZERO
             };
             if result.timed_out()
                 || (duration.as_secs() == 0 && duration.subsec_nanos() < 1_000_000)
