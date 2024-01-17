@@ -39,6 +39,7 @@ use std::str::FromStr;
 /// let response = server.handle_request(request.into());
 /// assert_eq!(response.status_code(), StatusCode(200));
 /// ```
+#[derive(Debug)]
 pub struct TestRequest {
     body: &'static str,
     remote_addr: SocketAddr,
