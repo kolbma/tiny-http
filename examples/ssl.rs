@@ -43,8 +43,8 @@ fn main() {
         );
 
         let response = Response::from_string("hello world");
-        request
-            .respond(response)
-            .unwrap_or(println!("Failed to respond to request"));
+        if let Err(err) = request.respond(response) {
+            eprintln!("Failed to respond to request: {err:?}");
+        }
     }
 }
