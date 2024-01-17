@@ -158,25 +158,48 @@ fn vec_stack_buf_bench<const N: usize>(bencher: &mut test::Bencher) {
 }
 
 macro_rules! create_benches {
-    ( $($fstack:ident, $fvec:ident, $fvecstack:ident, $s:expr),+ ) => {
+    ( $(ignore $fstack:ident, $fvec:ident, $fvecstack:ident, $s:expr),+ ) => {
         $(
-            // #[ignore]
+            #[ignore]
             #[bench]
             fn $fstack(bencher: &mut test::Bencher) {
                 stack_buf_bench::<$s>(bencher);
             }
 
-            // #[ignore]
+            #[ignore]
             #[bench]
             fn $fvec(bencher: &mut test::Bencher) {
                 vec_bench::<$s>(bencher);
             }
 
-            // #[ignore]
+            #[ignore]
             #[bench]
             fn $fvecstack(bencher: &mut test::Bencher) {
                 vec_stack_buf_bench::<$s>(bencher);
             }
+        )+
+    };
+    ( $($fstack:ident, $fvec:ident, $fvecstack:ident, $s:expr),+ ) => {
+        $(
+            #[bench]
+            fn $fstack(bencher: &mut test::Bencher) {
+                stack_buf_bench::<$s>(bencher);
+            }
+
+            #[bench]
+            fn $fvec(bencher: &mut test::Bencher) {
+                vec_bench::<$s>(bencher);
+            }
+
+            #[bench]
+            fn $fvecstack(bencher: &mut test::Bencher) {
+                vec_stack_buf_bench::<$s>(bencher);
+            }
+        )+
+    };
+    ( $(ignore [$f1:ident, $f2:ident, $f3:ident, $s:expr]),+ ) => {
+        $(
+            create_benches!(ignore $f1, $f2, $f3, $s);
         )+
     };
     ( $([$f1:ident, $f2:ident, $f3:ident, $s:expr]),+ ) => {
@@ -186,10 +209,12 @@ macro_rules! create_benches {
     };
 }
 
+create_benches!(ignore [stack_buf_128, vec_128, vec_stack_buf_128, 128_usize]);
 create_benches!(
-    [stack_buf_128, vec_128, vec_stack_buf_128, 128_usize],
     [stack_buf_192, vec_192, vec_stack_buf_192, 192_usize],
-    [stack_buf_256, vec_256, vec_stack_buf_256, 256_usize],
-    [stack_buf_384, vec_384, vec_stack_buf_384, 384_usize],
-    [stack_buf_512, vec_512, vec_stack_buf_512, 512_usize]
+    [stack_buf_256, vec_256, vec_stack_buf_256, 256_usize]
+);
+create_benches!(
+    ignore [stack_buf_384, vec_384, vec_stack_buf_384, 384_usize],
+    ignore [stack_buf_512, vec_512, vec_stack_buf_512, 512_usize]
 );
