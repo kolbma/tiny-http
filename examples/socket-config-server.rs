@@ -1,10 +1,12 @@
-#![cfg(feature = "socket2")]
 extern crate tiny_http;
 
+#[cfg(feature = "socket2")]
 use std::time::Duration;
 
+#[cfg(feature = "socket2")]
 use tiny_http::{Response, Server, ServerConfig};
 
+#[cfg(feature = "socket2")]
 fn main() -> Result<(), std::io::Error> {
     let server = Server::new(ServerConfig {
         addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:8000")?,
@@ -35,3 +37,6 @@ fn main() -> Result<(), std::io::Error> {
 
     Ok(())
 }
+
+#[cfg(not(feature = "socket2"))]
+fn main() {}
