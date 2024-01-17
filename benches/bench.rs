@@ -42,13 +42,13 @@ fn sequential_requests(bencher: &mut test::Bencher) {
 
         assert_eq!(request.method(), &Method::Get);
 
-        request.respond(tiny_http::Response::new_empty(tiny_http::StatusCode(204)));
+        let _ = request.respond(tiny_http::Response::new_empty(tiny_http::StatusCode(204)));
     });
 }
 
 #[bench]
 fn parallel_requests(bencher: &mut test::Bencher) {
-    fdlimit::raise_fd_limit();
+    let _ = fdlimit::raise_fd_limit();
 
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
     let port = server.server_addr().to_ip().unwrap().port();
@@ -74,7 +74,7 @@ fn parallel_requests(bencher: &mut test::Bencher) {
 
             assert_eq!(request.method(), &Method::Get);
 
-            request.respond(tiny_http::Response::new_empty(tiny_http::StatusCode(204)));
+            let _ = request.respond(tiny_http::Response::new_empty(tiny_http::StatusCode(204)));
         }
     });
 }
