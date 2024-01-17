@@ -15,7 +15,8 @@ struct SlowByteSrc {
     val: u8,
     len: usize,
 }
-impl<'b> Read for SlowByteSrc {
+
+impl Read for SlowByteSrc {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         sleep(Duration::from_millis(100));
         let l = self.len.min(buf.len()).min(1000);
@@ -53,7 +54,7 @@ mod prompt_pipelining {
     ) {
         let resp_body = SlowByteSrc {
             val: 42,
-            len: 1000_000,
+            len: 1_000_000,
         }; // very slow response body
 
         let server = Server::http("0.0.0.0:0").unwrap();
@@ -165,7 +166,7 @@ mod prompt_responses {
 
     static SLOW_BODY: SlowByteSrc = SlowByteSrc {
         val: 65,
-        len: 1000_000,
+        len: 1_000_000,
     };
 
     #[test]
