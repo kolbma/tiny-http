@@ -27,7 +27,7 @@
 //!     // blocks until the next request is received
 //!     let request = match server.recv() {
 //!         Ok(rq) => rq,
-//!         Err(e) => { println!("error: {}", e); break }
+//!         Err(err) => { eprintln!("error: {err}"); break }
 //!     };
 //!
 //!     // do something with the request
