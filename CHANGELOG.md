@@ -1,5 +1,29 @@
 # Changes
 
+## Unreleased
+* Bumped msrv to 1.61
+
+* Bumped the minimum compiler version tested by CI to 1.61 - this is necessary due to an increasing number of dependencies
+  introducing Cargo manifest features only supported on newer versions of Rust.
+
+* Fix issue #252: Content-Length header has been used for memory allocation
+
+* HTTP Header limits introduced
+
+  - 414 URI Too Long when request url is over 2048 bytes
+  - 431 Request Header Fields Too Large when line is over 2048 bytes
+  - complete header is limited to 8192 bytes
+
+* New feature _native-tls_
+
+  _native-tls_ is a crate that will pick the platforms native TLS implementation depending on the chosen build target.
+
+* _log_ feature can disable log support
+
+* Update rustls to v0.22, rustls-pemfile to v2.0
+
+* New example _router_ how route and response handling could be implemented
+
 ## 0.12.0
 * Bumped the minimum compiler version tested by CI to 1.56 - this is necessary due to an increasing number of dependencies
   introducing Cargo manifest features only supported on newer versions of Rust.
