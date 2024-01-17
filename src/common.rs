@@ -1,7 +1,7 @@
 use ascii::{AsAsciiStr, AsciiChar, AsciiStr, AsciiString, FromAsciiError};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
@@ -199,7 +199,7 @@ impl FromStr for Header {
     }
 }
 
-impl Display for Header {
+impl std::fmt::Display for Header {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}: {}", self.field, self.value.as_str())
     }
@@ -270,7 +270,7 @@ impl TryFrom<&AsciiStr> for HeaderField {
     }
 }
 
-impl Display for HeaderField {
+impl std::fmt::Display for HeaderField {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}", self.0.as_str())
     }
@@ -382,7 +382,7 @@ impl FromStr for Method {
     }
 }
 
-impl Display for Method {
+impl std::fmt::Display for Method {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}", self.as_str())
     }
@@ -411,7 +411,7 @@ impl From<&AsciiStr> for Method {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HTTPVersion(pub u8, pub u8);
 
-impl Display for HTTPVersion {
+impl std::fmt::Display for HTTPVersion {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}.{}", self.0, self.1)
     }
