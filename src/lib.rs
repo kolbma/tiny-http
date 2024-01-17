@@ -180,6 +180,11 @@ pub struct ServerConfig {
     /// The addresses to try to listen to.
     pub addr: ConfigListenAddr,
 
+    /// Socket configuration with _socket2_ feature  
+    /// See [SocketConfig]
+    #[cfg(feature = "socket2")]
+    pub socket_config: connection::SocketConfig,
+
     /// If `Some`, then the server will use SSL to encode the communications.
     pub ssl: Option<SslConfig>,
 }
@@ -202,6 +207,8 @@ impl Server {
     {
         Server::new(ServerConfig {
             addr: ConfigListenAddr::from_socket_addrs(addr)?,
+            #[cfg(feature = "socket2")]
+            socket_config: connection::SocketConfig::default(),
             ssl: None,
         })
     }
@@ -222,6 +229,8 @@ impl Server {
     {
         Server::new(ServerConfig {
             addr: ConfigListenAddr::from_socket_addrs(addr)?,
+            #[cfg(feature = "socket2")]
+            socket_config: connection::SocketConfig::default(),
             ssl: Some(config),
         })
     }
@@ -234,12 +243,17 @@ impl Server {
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
         Server::new(ServerConfig {
             addr: ConfigListenAddr::unix_from_path(path),
+            #[cfg(feature = "socket2")]
+            socket_config: connection::SocketConfig::default(),
             ssl: None,
         })
     }
 
     /// Builds a new server that listens on the specified address.
     pub fn new(config: ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
+        #[cfg(feature = "socket2")]
+        let listener = config.addr.bind(&config.socket_config)?;
+        #[cfg(not(feature = "socket2"))]
         let listener = config.addr.bind()?;
         Self::from_listener(listener, config.ssl)
     }

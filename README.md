@@ -34,6 +34,29 @@ Add this to the `Cargo.toml` file of your project:
 tiny_http = "0.12"
 ```
 
+#### Minimum Supported Rust Version
+
+At least version __1.60__.  
+But feature __ssl-rustls__ needs __1.61__ and default feature __socket2__ needs __1.63__.
+
+
+### Features
+
+#### Default features
+
+- log: uses log trait to debug and error
+- socket2: provides configurable TCP socket
+
+#### Optional features
+
+- log: uses log trait to debug and error
+- socket2: provides configurable TCP socket
+
+Select single _ssl_ feature...  
+- ssl: HTTPS with openssl support
+- ssl-native-tls: HTTPS with native-tls support
+- ssl-rustls: HTTPS with rustls support
+
 ### Usage
 
 ```rust

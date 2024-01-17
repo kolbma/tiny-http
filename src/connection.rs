@@ -117,14 +117,36 @@ impl From<unix_net::UnixStream> for Connection {
 
 #[derive(Debug, Clone)]
 pub enum ConfigListenAddr {
+    #[cfg(not(feature = "socket2"))]
     IP(Vec<SocketAddr>),
+    #[cfg(feature = "socket2")]
+    IP((Vec<SocketAddr>, Option<SocketConfig>)),
     #[cfg(unix)]
     // TODO: use SocketAddr when bind_addr is stabilized
     Unix(std::path::PathBuf),
 }
 impl ConfigListenAddr {
+    #[cfg(not(feature = "socket2"))]
     pub fn from_socket_addrs<A: ToSocketAddrs>(addrs: A) -> std::io::Result<Self> {
         addrs.to_socket_addrs().map(|it| Self::IP(it.collect()))
+    }
+
+    #[cfg(feature = "socket2")]
+    pub fn from_socket_addrs<A: ToSocketAddrs>(addrs: A) -> std::io::Result<Self> {
+        addrs
+            .to_socket_addrs()
+            .map(|it| Self::IP((it.collect(), None)))
+    }
+
+    #[cfg(feature = "socket2")]
+    pub fn with_config(mut self, config: SocketConfig) -> Self {
+        match &mut self {
+            ConfigListenAddr::IP((_, cfg)) => {
+                *cfg = Some(config);
+                self
+            }
+            ConfigListenAddr::Unix(_) => self,
+        }
     }
 
     #[cfg(unix)]
@@ -132,11 +154,65 @@ impl ConfigListenAddr {
         Self::Unix(path.into())
     }
 
+    #[cfg(feature = "socket2")]
+    pub(crate) fn bind(&self, config: &SocketConfig) -> std::io::Result<Listener> {
+        match self {
+            Self::IP(ip) => {
+                let addresses = &ip.0;
+                let mut err = None;
+                let mut socket =
+                    socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?;
+
+                for address in addresses {
+                    socket = socket2::Socket::new(
+                        socket2::Domain::for_address(*address),
+                        socket2::Type::STREAM,
+                        None,
+                    )?;
+
+                    if let Err(e) = socket.bind(&(*address).into()) {
+                        err = Some(e);
+                        continue;
+                    }
+                    if let Err(e) = socket.listen(128) {
+                        err = Some(e);
+                        continue;
+                    }
+                    err = None;
+                    break;
+                }
+
+                if let Some(err) = err {
+                    return Err(err);
+                }
+
+                socket.set_keepalive(config.keep_alive)?;
+                socket.set_nodelay(config.no_delay)?;
+                socket.set_read_timeout(Some(config.read_timeout))?;
+                socket.set_tcp_keepalive(&if let Some(tcp_keepalive_interval) =
+                    config.tcp_keepalive_interval
+                {
+                    socket2::TcpKeepalive::new()
+                        .with_interval(tcp_keepalive_interval)
+                        .with_time(config.tcp_keepalive_time)
+                } else {
+                    socket2::TcpKeepalive::new().with_time(config.tcp_keepalive_time)
+                })?;
+                socket.set_write_timeout(Some(config.write_timeout))?;
+
+                Ok(Listener::Tcp(socket.into()))
+            }
+            #[cfg(unix)]
+            Self::Unix(path) => unix_net::UnixListener::bind(path).map(Listener::from),
+        }
+    }
+
+    #[cfg(not(feature = "socket2"))]
     pub(crate) fn bind(&self) -> std::io::Result<Listener> {
         match self {
-            Self::IP(a) => TcpListener::bind(a.as_slice()).map(Listener::from),
+            Self::IP(addresses) => TcpListener::bind(addresses.as_slice()).map(Listener::from),
             #[cfg(unix)]
-            Self::Unix(a) => unix_net::UnixListener::bind(a).map(Listener::from),
+            Self::Unix(path) => unix_net::UnixListener::bind(path).map(Listener::from),
         }
     }
 }
@@ -189,6 +265,42 @@ impl std::fmt::Display for ListenAddr {
             Self::IP(s) => s.fmt(f),
             #[cfg(unix)]
             Self::Unix(s) => std::fmt::Debug::fmt(s, f),
+        }
+    }
+}
+
+/// Config for TCP socket with enabled _socket2_ feature
+///
+/// # Defaults
+///
+/// keep_alive: true  
+/// no_delay: true  
+/// read_timeout: 10s  
+/// tcp_keepalive_interval: None  
+/// tcp_keepalive_time: 5s  
+/// write_timeout: 10s
+///
+#[cfg(feature = "socket2")]
+#[derive(Clone, Debug)]
+pub struct SocketConfig {
+    pub keep_alive: bool,
+    pub no_delay: bool,
+    pub read_timeout: std::time::Duration,
+    pub tcp_keepalive_interval: Option<std::time::Duration>,
+    pub tcp_keepalive_time: std::time::Duration,
+    pub write_timeout: std::time::Duration,
+}
+
+#[cfg(feature = "socket2")]
+impl Default for SocketConfig {
+    fn default() -> Self {
+        Self {
+            keep_alive: true,
+            no_delay: true,
+            read_timeout: std::time::Duration::from_secs(10),
+            tcp_keepalive_interval: None,
+            tcp_keepalive_time: std::time::Duration::from_secs(5),
+            write_timeout: std::time::Duration::from_secs(10),
         }
     }
 }
