@@ -1,15 +1,14 @@
-extern crate ascii;
-extern crate tiny_http;
-
-use ascii::AsAsciiStr;
-
-/**!
+/*!
 
 A web server that redirects every request to a PHP script.
 
 Usage: php-cgi <php-script-path>
 
 */
+extern crate ascii;
+extern crate tiny_http;
+
+use ascii::AsAsciiStr;
 
 fn handle(rq: tiny_http::Request, script: &str) {
     use std::io::Write;
@@ -22,21 +21,21 @@ fn handle(rq: tiny_http::Request, script: &str) {
         .env("AUTH_TYPE", "")
         .env(
             "CONTENT_LENGTH",
-            format!("{}", rq.body_length().unwrap_or(0)),
+            format!("{}", rq.body_length().unwrap_or_default()),
         )
         .env("CONTENT_TYPE", "")
         .env("GATEWAY_INTERFACE", "CGI/1.1")
         .env("PATH_INFO", "")
         .env("PATH_TRANSLATED", "")
-        .env("QUERY_STRING", format!("{}", rq.url()))
-        .env("REMOTE_ADDR", format!("{}", rq.remote_addr().unwrap()))
+        .env("QUERY_STRING", rq.url())
+        .env("REMOTE_ADDR", rq.remote_addr().unwrap().to_string())
         .env("REMOTE_HOST", "")
         .env("REMOTE_IDENT", "")
         .env("REMOTE_USER", "")
-        .env("REQUEST_METHOD", format!("{}", rq.method()))
+        .env("REQUEST_METHOD", rq.method().as_str())
         .env("SCRIPT_NAME", script)
         .env("SERVER_NAME", "tiny-http php-cgi example")
-        .env("SERVER_PORT", format!("{}", rq.remote_addr().unwrap()))
+        .env("SERVER_PORT", rq.remote_addr().unwrap().to_string())
         .env("SERVER_PROTOCOL", "HTTP/1.1")
         .env("SERVER_SOFTWARE", "tiny-http php-cgi example")
         .output()
@@ -58,7 +57,7 @@ fn handle(rq: tiny_http::Request, script: &str) {
         _ => {
             println!(
                 "Error in script execution: {}",
-                php.stderr.clone().as_ascii_str().unwrap()
+                php.stderr.as_ascii_str().unwrap()
             );
         }
     }
