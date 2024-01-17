@@ -106,11 +106,13 @@ fn custom_content_type_response_header() {
     let request = server.recv().unwrap();
     request
         .respond(
-            tiny_http::Response::from_string("{\"custom\": \"Content-Type\"}").with_header(
-                "Content-Type: application/json"
-                    .parse::<tiny_http::Header>()
-                    .unwrap(),
-            ),
+            tiny_http::Response::from_string("{\"custom\": \"Content-Type\"}")
+                .with_header(
+                    "Content-Type: application/json"
+                        .parse::<tiny_http::Header>()
+                        .unwrap(),
+                )
+                .unwrap(),
         )
         .unwrap();
 

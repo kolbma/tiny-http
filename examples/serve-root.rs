@@ -39,10 +39,12 @@ fn main() {
         if let Ok(file) = file {
             let response = tiny_http::Response::from_file(file);
 
-            let response = response.with_header(tiny_http::Header {
-                field: "Content-Type".parse().unwrap(),
-                value: AsciiString::from_ascii(get_content_type(path)).unwrap(),
-            });
+            let response = response
+                .with_header(tiny_http::Header {
+                    field: "Content-Type".parse().unwrap(),
+                    value: AsciiString::from_ascii(get_content_type(path)).unwrap(),
+                })
+                .unwrap();
 
             if let Err(err) = rq.respond(response) {
                 eprintln!("{err:#?}");

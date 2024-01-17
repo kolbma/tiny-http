@@ -36,6 +36,7 @@ fn home_page(port: u16) -> tiny_http::Response<Cursor<Vec<u8>>> {
             .parse::<tiny_http::Header>()
             .unwrap(),
     )
+    .unwrap()
 }
 
 /// Turns a Sec-WebSocket-Key into a Sec-WebSocket-Accept.
@@ -102,18 +103,17 @@ fn main() {
 
             // building the "101 Switching Protocols" response
             let response = tiny_http::Response::new_empty(tiny_http::StatusCode(101))
-                .with_header("Upgrade: websocket".parse::<tiny_http::Header>().unwrap())
-                .with_header("Connection: Upgrade".parse::<tiny_http::Header>().unwrap())
-                .with_header(
+                .with_headers(Vec::from([
+                    "Upgrade: websocket".parse::<tiny_http::Header>().unwrap(),
+                    "Connection: Upgrade".parse::<tiny_http::Header>().unwrap(),
                     "Sec-WebSocket-Protocol: ping"
                         .parse::<tiny_http::Header>()
                         .unwrap(),
-                )
-                .with_header(
                     format!("Sec-WebSocket-Accept: {}", convert_key(key.as_str()))
                         .parse::<tiny_http::Header>()
                         .unwrap(),
-                );
+                ]))
+                .unwrap();
 
             //
             let mut stream = request.upgrade("websocket", response);

@@ -2,6 +2,7 @@ use ascii::{AsAsciiStr, AsciiChar, AsciiStr, AsciiString, FromAsciiError};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};
+use std::hash::Hash;
 use std::str::FromStr;
 
 /// Status code of a request or response.
@@ -180,16 +181,19 @@ impl Header {
 }
 
 impl FromStr for Header {
-    type Err = ();
+    type Err = HeaderError;
 
-    fn from_str(input: &str) -> Result<Header, ()> {
+    fn from_str(input: &str) -> Result<Header, HeaderError> {
         let mut elems = input.splitn(2, ':');
 
-        let field = elems.next().and_then(|f| f.parse().ok()).ok_or(())?;
+        let field = elems
+            .next()
+            .and_then(|f| f.parse().ok())
+            .ok_or(HeaderError)?;
         let value = elems
             .next()
             .and_then(|v| AsciiString::from_ascii(v.trim()).ok())
-            .ok_or(())?;
+            .ok_or(HeaderError)?;
 
         Ok(Header { field, value })
     }
@@ -240,13 +244,15 @@ impl HeaderField {
 }
 
 impl FromStr for HeaderField {
-    type Err = ();
+    type Err = HeaderError;
 
-    fn from_str(s: &str) -> Result<HeaderField, ()> {
+    fn from_str(s: &str) -> Result<HeaderField, HeaderError> {
         if s.contains(char::is_whitespace) {
-            Err(())
+            Err(HeaderError)
         } else {
-            AsciiString::from_ascii(s).map(HeaderField).map_err(|_| ())
+            AsciiString::from_ascii(s)
+                .map(HeaderField)
+                .map_err(|_| HeaderError)
         }
     }
 }
@@ -275,6 +281,28 @@ impl PartialEq for HeaderField {
         let self_str: &str = self.as_str().as_ref();
         let other_str = other.as_str().as_ref();
         self_str.eq_ignore_ascii_case(other_str)
+    }
+}
+
+impl Hash for HeaderField {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_ascii_lowercase().hash(state);
+    }
+}
+
+// Needs to be lower-case!!!
+pub(crate) const HEADER_FORBIDDEN: &[&str] =
+    &["connection", "trailer", "transfer-encoding", "upgrade"];
+
+/// Header was not added
+#[derive(Debug)]
+pub struct HeaderError;
+
+impl std::error::Error for HeaderError {}
+
+impl std::fmt::Display for HeaderError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("header not allowed")
     }
 }
 
@@ -450,13 +478,13 @@ mod test {
     use ascii::AsAsciiStr;
     use httpdate::HttpDate;
 
-    use super::Header;
+    use super::{Header, HEADER_FORBIDDEN};
 
     #[test]
     fn test_parse_header() {
         let header: Header = "Content-Type: text/html".parse().unwrap();
 
-        assert!(header.field.equiv(&"content-type"));
+        assert!(header.field.equiv("content-type"));
         assert!(header.value.as_str() == "text/html");
 
         assert!("hello world".parse::<Header>().is_err());
@@ -467,7 +495,7 @@ mod test {
         let header: Header =
             Header::try_from("Content-Type: text/html".as_ascii_str().unwrap()).unwrap();
 
-        assert!(header.field.equiv(&"content-type"));
+        assert!(header.field.equiv("content-type"));
         assert!(header.value.as_str() == "text/html");
     }
 
@@ -482,7 +510,7 @@ mod test {
     fn test_parse_header_with_doublecolon() {
         let header: Header = "Time: 20: 34".parse().unwrap();
 
-        assert!(header.field.equiv(&"time"));
+        assert!(header.field.equiv("time"));
         assert!(header.value.as_str() == "20: 34");
     }
 
@@ -490,7 +518,7 @@ mod test {
     fn test_header_with_doublecolon_try_from_ascii() {
         let header: Header = Header::try_from("Time: 20: 34".as_ascii_str().unwrap()).unwrap();
 
-        assert!(header.field.equiv(&"time"));
+        assert!(header.field.equiv("time"));
         assert!(header.value.as_str() == "20: 34");
     }
 
@@ -537,6 +565,13 @@ mod test {
                 s,
                 header.unwrap_err()
             );
+        }
+    }
+
+    #[test]
+    fn test_header_forbidden_lc() {
+        for h in HEADER_FORBIDDEN {
+            assert_eq!(h, &h.to_lowercase());
         }
     }
 }

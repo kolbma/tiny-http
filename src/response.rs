@@ -1,15 +1,15 @@
-use crate::common::{HTTPVersion, Header, StatusCode};
-use httpdate::HttpDate;
 use std::cmp::Ordering;
-use std::sync::mpsc::Receiver;
-
-use std::io::Result as IoResult;
-use std::io::{self, Cursor, Read, Write};
-
+use std::collections::HashSet;
 use std::fs::File;
-
+use std::io::{self, Cursor, Read, Result as IoResult, Write};
 use std::str::FromStr;
+use std::sync::mpsc::Receiver;
 use std::time::SystemTime;
+
+use httpdate::HttpDate;
+
+use crate::common::{HTTPVersion, Header, HeaderError, StatusCode, HEADER_FORBIDDEN};
+use crate::HeaderField;
 
 /// Object representing an HTTP response whose purpose is to be given to a `Request`.
 ///
@@ -41,6 +41,7 @@ pub struct Response<R> {
     reader: R,
     status_code: StatusCode,
     headers: Vec<Header>,
+    filter_headers: HashSet<HeaderField>,
     data_length: Option<usize>,
     chunked_threshold: Option<usize>,
 }
@@ -77,17 +78,18 @@ fn build_date_header() -> Header {
 }
 
 fn write_message_header<W>(
-    mut writer: W,
+    writer: &mut W,
     http_version: &HTTPVersion,
     status_code: StatusCode,
     headers: &[Header],
+    filter_headers: &HashSet<HeaderField>,
 ) -> IoResult<()>
 where
     W: Write,
 {
     // writing status line
     write!(
-        &mut writer,
+        writer,
         "HTTP/{}.{} {} {}\r\n",
         http_version.0,
         http_version.1,
@@ -97,14 +99,16 @@ where
 
     // writing headers
     for header in headers {
-        writer.write_all(header.field.as_str().as_ref())?;
-        write!(&mut writer, ": ")?;
-        writer.write_all(header.value.as_str().as_ref())?;
-        write!(&mut writer, "\r\n")?;
+        if !filter_headers.contains(&header.field) || header.field.equiv("Date") {
+            writer.write_all(header.field.as_str().as_ref())?;
+            write!(writer, ": ")?;
+            writer.write_all(header.value.as_str().as_ref())?;
+            write!(writer, "\r\n")?;
+        }
     }
 
     // separator between header and data
-    write!(&mut writer, "\r\n")?;
+    write!(writer, "\r\n")?;
 
     Ok(())
 }
@@ -204,18 +208,19 @@ where
             reader: data,
             status_code,
             headers: Vec::with_capacity(16),
+            filter_headers: HashSet::with_capacity(0),
             data_length,
             chunked_threshold: None,
         };
 
         for h in headers {
-            response.add_header(h);
+            let _ = response.add_header(h);
         }
 
         // dummy implementation
         if let Some(additional_headers) = additional_headers {
             for h in additional_headers {
-                response.add_header(h);
+                let _ = response.add_header(h);
             }
         }
 
@@ -248,19 +253,15 @@ where
 
     /// Adds a header to the list.
     /// Does all the checks.
-    pub fn add_header<H>(&mut self, header: H)
+    pub fn add_header<H>(&mut self, header: H) -> Result<(), HeaderError>
     where
         H: Into<Header>,
     {
         let header = header.into();
 
         // ignoring forbidden headers
-        if header.field.equiv("Connection")
-            || header.field.equiv("Trailer")
-            || header.field.equiv("Transfer-Encoding")
-            || header.field.equiv("Upgrade")
-        {
-            return;
+        if HEADER_FORBIDDEN.contains(&header.field.as_str().to_ascii_lowercase().as_str()) {
+            return Err(HeaderError);
         }
 
         // if the header is Content-Length, setting the data length
@@ -269,7 +270,7 @@ where
                 self.data_length = Some(val);
             }
 
-            return;
+            return Ok(());
         // if the header is Content-Type and it's already set, overwrite it
         } else if header.field.equiv("Content-Type") {
             if let Some(content_type_header) = self
@@ -278,11 +279,43 @@ where
                 .find(|h| h.field.equiv("Content-Type"))
             {
                 content_type_header.value = header.value;
-                return;
+                return Ok(());
             }
         }
 
         self.headers.push(header);
+        Ok(())
+    }
+
+    /// Adds headers to the list.
+    /// Does all the checks.
+    #[inline]
+    pub fn add_headers<H>(&mut self, headers: Vec<H>) -> Result<(), HeaderError>
+    where
+        H: Into<Header>,
+    {
+        for header in headers {
+            let header: Header = header.into();
+            self.add_header(header)?;
+        }
+        Ok(())
+    }
+
+    /// Append new filter for headers
+    ///
+    /// An header filter prevents the addition of the header to the response.
+    pub fn filter_header<H>(&mut self, header_field: H) -> Result<(), HeaderError>
+    where
+        H: Into<HeaderField>,
+    {
+        let header_field: HeaderField = header_field.into();
+        if HEADER_FORBIDDEN.contains(&header_field.as_str().to_ascii_lowercase().as_str())
+            || header_field.as_str().to_ascii_lowercase().as_str() == "date"
+        {
+            return Err(HeaderError);
+        }
+        self.filter_headers.insert(header_field);
+        Ok(())
     }
 
     /// Returns the same request, but with an additional header.
@@ -290,12 +323,25 @@ where
     /// Some headers cannot be modified and some other have a
     ///  special behavior. See the documentation above.
     #[inline]
-    pub fn with_header<H>(mut self, header: H) -> Response<R>
+    pub fn with_header<H>(mut self, header: H) -> Result<Response<R>, HeaderError>
     where
         H: Into<Header>,
     {
-        self.add_header(header.into());
-        self
+        self.add_header(header.into())?;
+        Ok(self)
+    }
+
+    /// Returns the same request, but with additional headers.
+    ///
+    /// Some headers cannot be modified and some other have a
+    ///  special behavior. See the documentation above.
+    #[inline]
+    pub fn with_headers<H>(mut self, headers: Vec<H>) -> Result<Response<R>, HeaderError>
+    where
+        H: Into<Header>,
+    {
+        self.add_headers(headers)?;
+        Ok(self)
     }
 
     /// Returns the same request, but with a different status code.
@@ -316,6 +362,7 @@ where
         Response {
             reader,
             headers: self.headers,
+            filter_headers: self.filter_headers,
             status_code: self.status_code,
             data_length,
             chunked_threshold: self.chunked_threshold,
@@ -421,10 +468,11 @@ where
 
         // sending headers
         write_message_header(
-            writer.by_ref(),
+            &mut writer,
             http_version,
             self.status_code,
             &self.headers,
+            &self.filter_headers,
         )?;
 
         // sending the body
@@ -479,6 +527,7 @@ where
             reader: Box::new(self.reader) as Box<dyn Read + Send>,
             status_code: self.status_code,
             headers: self.headers,
+            filter_headers: self.filter_headers,
             data_length: self.data_length,
             chunked_threshold: self.chunked_threshold,
         }
@@ -567,8 +616,94 @@ impl Clone for Response<io::Empty> {
             reader: io::empty(),
             status_code: self.status_code,
             headers: self.headers.clone(),
+            filter_headers: self.filter_headers.clone(),
             data_length: self.data_length,
             chunked_threshold: self.chunked_threshold,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashSet, str::FromStr};
+
+    use crate::{
+        common::HeaderError,
+        response::{build_date_header, write_message_header},
+        HTTPVersion, Header, HeaderField,
+    };
+
+    use super::Response;
+
+    #[test]
+    fn test_filter_header() -> Result<(), HeaderError> {
+        assert!(HashSet::from([HeaderField::from_str("Server")?])
+            .contains(&HeaderField::from_str("server")?));
+
+        let mut writer = Vec::new();
+        let result = write_message_header(
+            &mut writer,
+            &HTTPVersion(1, 1),
+            200.into(),
+            &[
+                build_date_header(),
+                Header::from_str("Server: tiny-http").unwrap(),
+            ],
+            &HashSet::from([HeaderField::from_str("Date")?]),
+        );
+        assert!(result.is_ok());
+
+        let s = String::from_utf8(writer).expect("no utf8");
+        assert!(s.contains("Server:"), "{}", s);
+        assert!(s.contains("Date:"), "{}", s);
+
+        let mut writer = Vec::new();
+        let result = write_message_header(
+            &mut writer,
+            &HTTPVersion(1, 1),
+            200.into(),
+            &[
+                build_date_header(),
+                Header::from_str("Server: tiny-http").unwrap(),
+            ],
+            &HashSet::from([HeaderField::from_str("Server")?]),
+        );
+        assert!(result.is_ok());
+
+        let s = String::from_utf8(writer).expect("no utf8");
+        assert!(!s.contains("Server:"), "{}", s);
+        Ok(())
+    }
+
+    #[test]
+    fn test_with_header() -> Result<(), HeaderError> {
+        let mut response = Response::new_empty(200.into());
+
+        response = response.with_header(Header::from_str("Content-Type: text/plain")?)?;
+
+        assert!(Header::from_str("BlaBla").is_err());
+
+        let result = response.with_header(Header::from_str("Connection: close")?);
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_with_headers() -> Result<(), HeaderError> {
+        let mut response = Response::new_empty(200.into());
+
+        response = response.with_headers(Vec::from([
+            Header::from_str("Content-Type: text/plain")?,
+            Header::from_str("Content-Length: 100")?,
+        ]))?;
+
+        let result = response.with_headers(Vec::from([
+            Header::from_str("Content-Type: text/plain")?,
+            Header::from_str("Connection: close")?,
+        ]));
+        assert!(result.is_err());
+
+        Ok(())
     }
 }

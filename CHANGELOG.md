@@ -14,6 +14,11 @@
   - 431 Request Header Fields Too Large when line is over 2048 bytes
   - complete header is limited to 8192 bytes
 
+* BREAKING CHANGE: Response-header-methods return a Result with HeaderError if the header got not added
+
+  Affected methods are add_header(), add_headers(), filter_header(), with_header(), with_headers().  
+  Response.filter_header(HeaderField) prevents the HeaderField to be sent in the Response.
+
 * New feature _native-tls_
 
   _native-tls_ is a crate that will pick the platforms native TLS implementation depending on the chosen build target.
