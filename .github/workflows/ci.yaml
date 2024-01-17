@@ -39,7 +39,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.61
+          - 1.63
         features:
           - default
           - ssl-openssl
