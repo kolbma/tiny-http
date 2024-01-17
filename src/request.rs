@@ -172,16 +172,14 @@ where
     };
 
     // true if the client sent a `Connection: upgrade` header
-    let connection_upgrade = {
-        match headers
-            .iter()
-            .find(|h: &&Header| h.field.equiv("Connection"))
-            .map(|h| h.value.as_str())
-        {
-            Some(v) if v.to_ascii_lowercase().contains("upgrade") => true,
-            _ => false,
-        }
-    };
+    let connection_upgrade = headers.iter().any(|header| {
+        header.field.equiv("Connection")
+            && header
+                .value
+                .to_ascii_lowercase()
+                .as_str()
+                .contains("upgrade")
+    });
 
     // we wrap `source_data` around a reading whose nature depends on the transfer-encoding and
     // content-length headers

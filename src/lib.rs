@@ -89,7 +89,6 @@
 //! ```
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
-#![allow(clippy::match_like_matches_macro)]
 
 #[cfg(any(
     feature = "ssl-openssl",
