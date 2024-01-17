@@ -29,30 +29,32 @@ fn main() {
     let port = server.server_addr().to_ip().unwrap().port();
     println!("Now listening on port {}", port);
 
-    loop {
-        let rq = match server.recv() {
-            Ok(rq) => rq,
-            Err(_) => break,
-        };
-
+    while let Ok(rq) = server.recv() {
         println!("{:?}", rq);
 
         let url = rq.url().to_string();
         let path = Path::new(&url);
-        let file = fs::File::open(&path);
+        let file = fs::File::open(path);
 
-        if file.is_ok() {
-            let response = tiny_http::Response::from_file(file.unwrap());
+        if let Ok(file) = file {
+            let response = tiny_http::Response::from_file(file);
 
             let response = response.with_header(tiny_http::Header {
                 field: "Content-Type".parse().unwrap(),
-                value: AsciiString::from_ascii(get_content_type(&path)).unwrap(),
+                value: AsciiString::from_ascii(get_content_type(path)).unwrap(),
             });
 
-            let _ = rq.respond(response);
+            if let Err(err) = rq.respond(response) {
+                eprintln!("{err:#?}");
+            }
         } else {
-            let rep = tiny_http::Response::new_empty(tiny_http::StatusCode(404));
-            let _ = rq.respond(rep);
+            let status = tiny_http::StatusCode(404);
+            if let Err(err) = rq.respond(
+                tiny_http::Response::from_string(status.default_reason_phrase())
+                    .with_status_code(status),
+            ) {
+                eprintln!("{err:#?}");
+            }
         }
     }
 }
