@@ -87,6 +87,22 @@
 //! # let response = tiny_http::Response::from_file(File::open(&Path::new("image.png")).unwrap());
 //! let _ = request.respond(response);
 //! ```
+// #![warn(clippy::pedantic)]
+#![warn(
+    missing_debug_implementations,
+    // missing_docs,
+    non_ascii_idents,
+    rust_2018_compatibility,
+    trivial_casts,
+    trivial_numeric_casts,
+    // unreachable_pub,
+    unsafe_code,
+    // unused_crate_dependencies,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications,
+    // unused_results
+)]
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 
@@ -98,20 +114,20 @@
 use zeroize::Zeroizing;
 
 use std::error::Error;
-use std::io::Error as IoError;
-use std::io::ErrorKind as IoErrorKind;
-use std::io::Result as IoResult;
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::time::Duration;
+use std::{
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult},
+    net::{Shutdown, TcpStream, ToSocketAddrs},
+};
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+};
 
 use client::ClientConnection;
 use connection::Connection;
-use util::MessagesQueue;
+use util::{MessagesQueue, RefinedTcpStream};
 
 pub use common::{HTTPVersion, Header, HeaderField, Method, StatusCode};
 pub use connection::{ConfigListenAddr, ListenAddr, Listener, SocketConfig};
@@ -134,6 +150,7 @@ mod util;
 /// Destroying this object will immediately close the listening socket and the reading
 ///  part of all the client's connections. Requests that have already been returned by
 ///  the `recv()` function will not close and the responses will be transferred to the client.
+#[allow(missing_debug_implementations)]
 pub struct Server {
     // should be false as long as the server exists
     // when set to true, all the subtasks will close within a few hundreds ms
@@ -165,12 +182,22 @@ impl From<Request> for Message {
 
 // this trait is to make sure that Server implements Share and Send
 #[doc(hidden)]
-trait MustBeShareDummy: Sync + Send {}
+trait SyncSendT: Sync + Send {}
 #[doc(hidden)]
-impl MustBeShareDummy for Server {}
+impl SyncSendT for Server {}
 
+/// Iterator over received [Request] from [Server]
+#[allow(missing_debug_implementations)]
 pub struct IncomingRequests<'a> {
     server: &'a Server,
+}
+
+impl Iterator for IncomingRequests<'_> {
+    type Item = Request;
+
+    fn next(&mut self) -> Option<Request> {
+        self.server.recv().ok()
+    }
 }
 
 /// Represents the parameters required to create a server.
@@ -182,7 +209,7 @@ pub struct ServerConfig {
     /// Socket configuration with _socket2_ feature  
     /// See [SocketConfig]
     #[cfg(feature = "socket2")]
-    pub socket_config: connection::SocketConfig,
+    pub socket_config: SocketConfig,
 
     /// If `Some`, then the server will use SSL to encode the communications.
     pub ssl: Option<SslConfig>,
@@ -335,7 +362,6 @@ impl Server {
             while !inside_close_trigger.load(Relaxed) {
                 let new_client = match server.accept() {
                     Ok((sock, _)) => {
-                        use util::RefinedTcpStream;
                         let (read_closable, write_closable) = match ssl {
                             None => RefinedTcpStream::new(sock),
                             #[cfg(any(
@@ -458,13 +484,6 @@ impl Server {
     /// This method allows graceful shutdown of server.
     pub fn unblock(&self) {
         self.messages.unblock();
-    }
-}
-
-impl Iterator for IncomingRequests<'_> {
-    type Item = Request;
-    fn next(&mut self) -> Option<Request> {
-        self.server.recv().ok()
     }
 }
 

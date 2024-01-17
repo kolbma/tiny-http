@@ -187,12 +187,14 @@ fn connection_timeout() -> Result<(), std::io::Error> {
     use std::time::{Duration, Instant};
     use tiny_http::ServerConfig;
 
+    let now = Instant::now();
+
     let (server, mut client) = {
         let server = tiny_http::Server::new(ServerConfig {
             addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
             socket_config: tiny_http::SocketConfig {
-                read_timeout: Duration::from_millis(500),
-                write_timeout: Duration::from_millis(500),
+                read_timeout: Duration::from_millis(100),
+                write_timeout: Duration::from_millis(100),
                 ..tiny_http::SocketConfig::default()
             },
             ssl: None,
@@ -203,27 +205,86 @@ fn connection_timeout() -> Result<(), std::io::Error> {
         (server, client)
     };
 
-    let now = Instant::now();
+    thread::spawn(move || {
+        let rq = server.recv_timeout(Duration::from_secs(300));
+        assert!(rq.is_ok(), "req fail: {}", rq.unwrap_err());
 
-    write!(client, "GET / HTTP/1.").unwrap();
+        let rq = rq.unwrap();
+        assert!(rq.is_some());
+        let rq = rq.unwrap();
 
-    let h = thread::spawn(move || {
-        let rq = server.recv_timeout(Duration::from_secs(2));
-        assert!(rq.is_err());
+        let resp = tiny_http::Response::empty(tiny_http::StatusCode(204));
+        rq.respond(resp).unwrap();
     });
 
-    // thread::sleep(Duration::from_millis(3000));
+    write!(client, "GET / HTTP/1.1\r\n\r\n")?;
 
-    let _ = h.join();
+    let mut content = String::new();
+    client.read_to_string(&mut content).unwrap();
+    assert!(content.starts_with("HTTP/1.1 204"));
+
+    thread::sleep(Duration::from_millis(200));
+
+    let err = write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
+    );
+    assert!(err.is_ok());
 
     let elaps = now.elapsed();
     assert!(
-        elaps > Duration::from_millis(490) && elaps < Duration::from_millis(540),
+        elaps > Duration::from_millis(230) && elaps < Duration::from_millis(320),
         "elaps: {}",
         elaps.as_millis()
     );
 
-    drop(client);
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "socket2")]
+fn connection_timeout_wait_check() -> Result<(), std::io::Error> {
+    use std::time::{Duration, Instant};
+    use tiny_http::ServerConfig;
+
+    let now = Instant::now();
+
+    let (server, mut client) = {
+        let server = tiny_http::Server::new(ServerConfig {
+            addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
+            socket_config: tiny_http::SocketConfig {
+                read_timeout: Duration::from_millis(250),
+                write_timeout: Duration::from_millis(250),
+                ..tiny_http::SocketConfig::default()
+            },
+            ssl: None,
+        })
+        .unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        (server, client)
+    };
+
+    thread::spawn(move || {
+        let rq = server.recv_timeout(Duration::from_secs(300));
+        assert!(rq.is_err());
+    });
+
+    // make sure it is waiting longer than server timeouts
+    thread::sleep(Duration::from_millis(300));
+
+    let err = write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
+    );
+    assert!(err.is_ok());
+
+    let elaps = now.elapsed();
+    assert!(
+        elaps > Duration::from_millis(300) && elaps < Duration::from_millis(330),
+        "elaps: {}",
+        elaps.as_millis()
+    );
 
     Ok(())
 }

@@ -8,7 +8,11 @@ use std::{
 };
 
 /// Unified listener. Either a [`TcpListener`] or [`std::os::unix::net::UnixListener`]
+#[allow(missing_debug_implementations)]
 pub enum Listener {
+    #[cfg(feature = "socket2")]
+    Tcp(TcpListener, SocketConfig),
+    #[cfg(not(feature = "socket2"))]
     Tcp(TcpListener),
     #[cfg(unix)]
     Unix(unix_net::UnixListener),
@@ -16,12 +20,32 @@ pub enum Listener {
 impl Listener {
     pub(crate) fn local_addr(&self) -> std::io::Result<ListenAddr> {
         match self {
+            #[cfg(feature = "socket2")]
+            Self::Tcp(l, _cfg) => l.local_addr().map(ListenAddr::from),
+            #[cfg(not(feature = "socket2"))]
             Self::Tcp(l) => l.local_addr().map(ListenAddr::from),
             #[cfg(unix)]
             Self::Unix(l) => l.local_addr().map(ListenAddr::from),
         }
     }
 
+    #[cfg(feature = "socket2")]
+    pub(crate) fn accept(&self) -> std::io::Result<(Connection, Option<SocketAddr>)> {
+        use log::error;
+
+        match self {
+            Self::Tcp(l, cfg) => l.accept().map(|(mut conn, addr)| {
+                if let Err(err) = set_socket_cfg(&mut conn, cfg) {
+                    error!("socket config fail: {err:?}");
+                }
+                (Connection::from(conn), Some(addr))
+            }),
+            #[cfg(unix)]
+            Self::Unix(l) => l.accept().map(|(conn, _)| (Connection::from(conn), None)),
+        }
+    }
+
+    #[cfg(not(feature = "socket2"))]
     pub(crate) fn accept(&self) -> std::io::Result<(Connection, Option<SocketAddr>)> {
         match self {
             Self::Tcp(l) => l
@@ -32,6 +56,13 @@ impl Listener {
         }
     }
 }
+#[cfg(feature = "socket2")]
+impl From<(TcpListener, SocketConfig)> for Listener {
+    fn from((s, cfg): (TcpListener, SocketConfig)) -> Self {
+        Self::Tcp(s, cfg)
+    }
+}
+#[cfg(not(feature = "socket2"))]
 impl From<TcpListener> for Listener {
     fn from(s: TcpListener) -> Self {
         Self::Tcp(s)
@@ -42,6 +73,19 @@ impl From<unix_net::UnixListener> for Listener {
     fn from(s: unix_net::UnixListener) -> Self {
         Self::Unix(s)
     }
+}
+
+#[cfg(feature = "socket2")]
+#[inline]
+fn set_socket_cfg(socket: &mut TcpStream, config: &SocketConfig) -> Result<(), std::io::Error> {
+    socket.set_nodelay(config.no_delay)?;
+    if !config.read_timeout.is_zero() {
+        socket.set_read_timeout(Some(config.read_timeout))?;
+    }
+    if !config.write_timeout.is_zero() {
+        socket.set_write_timeout(Some(config.write_timeout))?;
+    }
+    Ok(())
 }
 
 /// Unified connection. Either a [`TcpStream`] or [`std::os::unix::net::UnixStream`].
@@ -117,25 +161,14 @@ impl From<unix_net::UnixStream> for Connection {
 
 #[derive(Debug, Clone)]
 pub enum ConfigListenAddr {
-    #[cfg(not(feature = "socket2"))]
     IP(Vec<SocketAddr>),
-    #[cfg(feature = "socket2")]
-    IP((Vec<SocketAddr>, Option<SocketConfig>)),
     #[cfg(unix)]
     // TODO: use SocketAddr when bind_addr is stabilized
-    Unix(std::path::PathBuf),
+    Unix(PathBuf),
 }
 impl ConfigListenAddr {
-    #[cfg(not(feature = "socket2"))]
     pub fn from_socket_addrs<A: ToSocketAddrs>(addrs: A) -> std::io::Result<Self> {
         addrs.to_socket_addrs().map(|it| Self::IP(it.collect()))
-    }
-
-    #[cfg(feature = "socket2")]
-    pub fn from_socket_addrs<A: ToSocketAddrs>(addrs: A) -> std::io::Result<Self> {
-        addrs
-            .to_socket_addrs()
-            .map(|it| Self::IP((it.collect(), None)))
     }
 
     #[cfg(unix)]
@@ -147,7 +180,7 @@ impl ConfigListenAddr {
     pub(crate) fn bind(&self, config: &SocketConfig) -> std::io::Result<Listener> {
         match self {
             Self::IP(ip) => {
-                let addresses = &ip.0;
+                let addresses = ip;
                 let mut err = None;
                 let mut socket =
                     socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?;
@@ -176,8 +209,6 @@ impl ConfigListenAddr {
                 }
 
                 socket.set_keepalive(config.keep_alive)?;
-                socket.set_nodelay(config.no_delay)?;
-                socket.set_read_timeout(Some(config.read_timeout))?;
                 socket.set_tcp_keepalive(&if let Some(tcp_keepalive_interval) =
                     config.tcp_keepalive_interval
                 {
@@ -187,9 +218,8 @@ impl ConfigListenAddr {
                 } else {
                     socket2::TcpKeepalive::new().with_time(config.tcp_keepalive_time)
                 })?;
-                socket.set_write_timeout(Some(config.write_timeout))?;
 
-                Ok(Listener::Tcp(socket.into()))
+                Ok(Listener::Tcp(socket.into(), config.clone()))
             }
             #[cfg(unix)]
             Self::Unix(path) => unix_net::UnixListener::bind(path).map(Listener::from),
