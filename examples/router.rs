@@ -1,5 +1,9 @@
-use tiny_http::{Server, Response, Request};
-use std::{collections::HashMap, io::Cursor};
+use log::error;
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read},
+};
+use tiny_http::{Request, Response, Server, StatusCode};
 
 type RouteHandler = fn(&mut Request) -> Response<Cursor<Vec<u8>>>;
 
@@ -13,29 +17,47 @@ fn get_hello(_req: &mut Request) -> Response<Cursor<Vec<u8>>> {
 
 fn post_echo(req: &mut Request) -> Response<Cursor<Vec<u8>>> {
     let mut request_body_bytes = Vec::new();
-    req.as_reader().read_to_end(&mut request_body_bytes).unwrap();
-    let request_body_string = String::from_utf8(request_body_bytes.clone()).unwrap();
-    Response::from_data(request_body_string.as_bytes())
+    if req
+        .as_reader()
+        .take(10_485_760)
+        .read_to_end(&mut request_body_bytes)
+        .is_ok()
+    {
+        if let Ok(request_body_string) = String::from_utf8(request_body_bytes) {
+            Response::from_data(request_body_string.as_bytes())
+        } else {
+            let status = StatusCode(400);
+            Response::from_string(status.default_reason_phrase()).with_status_code(status)
+        }
+    } else {
+        let status = StatusCode(503);
+        Response::from_string(status.default_reason_phrase()).with_status_code(status)
+    }
 }
 
 fn main() {
     let routes = HashMap::from([
-        ("GET:/".to_string(), get_root as RouteHandler),
-        ("GET:/hello".to_string(), get_hello as RouteHandler),
-        ("POST:/echo".to_string(), post_echo as RouteHandler),
+        ("GET:/", get_root as RouteHandler),
+        ("GET:/hello", get_hello as RouteHandler),
+        ("POST:/echo", post_echo as RouteHandler),
     ]);
     let server = Server::http("0.0.0.0:3000").unwrap();
     for mut request in server.incoming_requests() {
         let route_key = format!("{}:{}", request.method(), request.url());
-        match routes.get(&route_key) {
+        let response_result = match routes.get(route_key.as_str()) {
             Some(handler) => {
                 let response = handler(&mut request);
-                request.respond(response).unwrap();
-            },
-            None => {
-                let response = Response::from_string("404 Not Found").with_status_code(404);
-                request.respond(response).unwrap();
+                request.respond(response)
             }
+            None => {
+                let status = StatusCode(404);
+                let response =
+                    Response::from_string(status.default_reason_phrase()).with_status_code(status);
+                request.respond(response)
+            }
+        };
+        if let Err(err) = response_result {
+            error!("{err}");
         }
     }
 }
