@@ -74,32 +74,24 @@ fn main() {
         // we are handling this websocket connection in a new task
         spawn(move || {
             // checking the "Upgrade" header to check that it is a websocket
-            match request
+            if request
                 .headers()
                 .iter()
-                .find(|h| h.field.equiv(&"Upgrade"))
-                .and_then(|hdr| {
-                    if hdr.value == "websocket" {
-                        Some(hdr)
-                    } else {
-                        None
-                    }
-                }) {
-                None => {
-                    // sending the HTML page
-                    request.respond(home_page(port)).expect("Responded");
-                    return;
-                }
-                _ => (),
-            };
+                .any(|h| h.field.equiv("Upgrade") && h.value == "websocket")
+            {
+                // sending the HTML page
+                request.respond(home_page(port)).expect("Responded");
+                return;
+            }
 
             // getting the value of Sec-WebSocket-Key
-            let key = match request
-                .headers()
-                .iter()
-                .find(|h| h.field.equiv(&"Sec-WebSocket-Key"))
-                .map(|h| h.value.clone())
-            {
+            let key = match request.headers().iter().find_map(|h| {
+                if h.field.equiv("Sec-WebSocket-Key") {
+                    Some(h.value.clone())
+                } else {
+                    None
+                }
+            }) {
                 None => {
                     let response = tiny_http::Response::new_empty(tiny_http::StatusCode(400));
                     request.respond(response).expect("Responded");
@@ -138,7 +130,7 @@ fn main() {
                     }
                     Ok(_) => panic!("eof ; should never happen"),
                     Err(e) => {
-                        println!("closing connection because: {}", e);
+                        eprintln!("closing connection because: {}", e);
                         return;
                     }
                 };
