@@ -37,6 +37,7 @@ use crate::HeaderField;
 ///     behavior differs from the default for most headers, which is to allow them to
 ///     be set multiple times in the same response.
 ///
+#[derive(Debug)]
 pub struct Response<R> {
     reader: R,
     status_code: StatusCode,
@@ -231,6 +232,8 @@ where
     /// transfer. Notice that chunked transfer might happen regardless of
     /// this threshold, for instance when the request headers indicate
     /// it is wanted or when there is no `Content-Length`.
+    ///
+    #[must_use]
     pub fn with_chunked_threshold(mut self, length: usize) -> Response<R> {
         self.chunked_threshold = Some(length);
         self
@@ -253,6 +256,11 @@ where
 
     /// Adds a header to the list.
     /// Does all the checks.
+    ///
+    /// # Errors
+    ///
+    /// - `[HeaderError]` when header is not added
+    ///
     pub fn add_header<H>(&mut self, header: H) -> Result<(), HeaderError>
     where
         H: Into<Header>,
@@ -289,6 +297,11 @@ where
 
     /// Adds headers to the list.
     /// Does all the checks.
+    ///
+    /// # Errors
+    ///
+    /// - `[HeaderError]` when header is not added
+    ///
     #[inline]
     pub fn add_headers<H>(&mut self, headers: Vec<H>) -> Result<(), HeaderError>
     where
@@ -304,6 +317,11 @@ where
     /// Append new filter for headers
     ///
     /// An header filter prevents the addition of the header to the response.
+    ///
+    /// # Errors
+    ///
+    /// - `[HeaderError]` when header is not added
+    ///
     pub fn filter_header<H>(&mut self, header_field: H) -> Result<(), HeaderError>
     where
         H: Into<HeaderField>,
@@ -314,14 +332,19 @@ where
         {
             return Err(HeaderError);
         }
-        self.filter_headers.insert(header_field);
+        let _ = self.filter_headers.insert(header_field);
         Ok(())
     }
 
     /// Returns the same request, but with an additional header.
     ///
     /// Some headers cannot be modified and some other have a
-    ///  special behavior. See the documentation above.
+    /// special behavior. See the documentation above.
+    ///
+    /// # Errors
+    ///
+    /// - `[HeaderError]` when header is not added
+    ///
     #[inline]
     pub fn with_header<H>(mut self, header: H) -> Result<Response<R>, HeaderError>
     where
@@ -334,7 +357,12 @@ where
     /// Returns the same request, but with additional headers.
     ///
     /// Some headers cannot be modified and some other have a
-    ///  special behavior. See the documentation above.
+    /// special behavior. See the documentation above.
+    ///
+    /// # Errors
+    ///
+    /// - `[HeaderError]` when header is not added
+    ///
     #[inline]
     pub fn with_headers<H>(mut self, headers: Vec<H>) -> Result<Response<R>, HeaderError>
     where
@@ -345,6 +373,7 @@ where
     }
 
     /// Returns the same request, but with a different status code.
+    #[must_use]
     #[inline]
     pub fn with_status_code<S>(mut self, code: S) -> Response<R>
     where
@@ -375,9 +404,18 @@ where
     /// Therefore you shouldn't expect anything pretty-printed or even readable.
     ///
     /// The HTTP version and headers passed as arguments are used to
-    ///  decide which features (most notably, encoding) to use.
+    /// decide which features (most notably, encoding) to use.
     ///
     /// Note: does not flush the writer.
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error`
+    ///
+    /// # Panics
+    ///
+    /// - when `upgrade` is not ascii
+    ///
     pub fn raw_print<W: Write>(
         mut self,
         mut writer: W,
@@ -404,7 +442,7 @@ where
         if !self.headers.iter().any(|h| h.field.equiv("Server")) {
             self.headers.insert(
                 0,
-                Header::from_bytes(&b"Server"[..], &b"tiny-http (Rust)"[..]).unwrap(),
+                Header::from_bytes(b"Server", b"tiny-http (Rust)").unwrap(),
             );
         }
 
@@ -412,12 +450,10 @@ where
         if let Some(upgrade) = upgrade {
             self.headers.insert(
                 0,
-                Header::from_bytes(&b"Upgrade"[..], upgrade.as_bytes()).unwrap(),
+                Header::from_bytes(b"Upgrade", upgrade.as_bytes()).unwrap(),
             );
-            self.headers.insert(
-                0,
-                Header::from_bytes(&b"Connection"[..], &b"upgrade"[..]).unwrap(),
-            );
+            self.headers
+                .insert(0, Header::from_bytes(b"Connection", b"upgrade").unwrap());
             transfer_encoding = None;
         }
 
@@ -429,7 +465,7 @@ where
                 (Some(l), _) => (Box::new(self.reader), Some(l)),
                 (None, Some(TransferEncoding::Identity)) => {
                     let mut buf = Vec::new();
-                    self.reader.read_to_end(&mut buf)?;
+                    let _ = self.reader.read_to_end(&mut buf)?;
                     let l = buf.len();
                     (Box::new(Cursor::new(buf)), Some(l))
                 }
@@ -448,18 +484,15 @@ where
         match transfer_encoding {
             Some(TransferEncoding::Chunked) => self
                 .headers
-                .push(Header::from_bytes(&b"Transfer-Encoding"[..], &b"chunked"[..]).unwrap()),
+                .push(Header::from_bytes(b"Transfer-Encoding", b"chunked").unwrap()),
 
             Some(TransferEncoding::Identity) => {
                 assert!(data_length.is_some());
                 let data_length = data_length.unwrap();
 
                 self.headers.push(
-                    Header::from_bytes(
-                        &b"Content-Length"[..],
-                        format!("{}", data_length).as_bytes(),
-                    )
-                    .unwrap(),
+                    Header::from_bytes(b"Content-Length", format!("{data_length}").as_bytes())
+                        .unwrap(),
                 );
             }
 
@@ -482,7 +515,7 @@ where
                     use chunked_transfer::Encoder;
 
                     let mut writer = Encoder::new(writer);
-                    io::copy(&mut reader, &mut writer)?;
+                    let _ = io::copy(&mut reader, &mut writer)?;
                 }
 
                 Some(TransferEncoding::Identity) => {
@@ -490,7 +523,7 @@ where
                     let data_length = data_length.unwrap();
 
                     if data_length >= 1 {
-                        io::copy(&mut reader, &mut writer)?;
+                        let _ = io::copy(&mut reader, &mut writer)?;
                     }
                 }
 
@@ -524,7 +557,7 @@ where
     /// Turns this response into a `Response<Box<Read + Send>>`.
     pub fn boxed(self) -> ResponseBox {
         Response {
-            reader: Box::new(self.reader) as Box<dyn Read + Send>,
+            reader: Box::new(self.reader),
             status_code: self.status_code,
             headers: self.headers,
             filter_headers: self.filter_headers,
@@ -538,8 +571,10 @@ impl Response<File> {
     /// Builds a new `Response` from a `File`.
     ///
     /// The `Content-Type` will **not** be automatically detected,
-    ///  you must set it yourself.
+    /// you must set it yourself.
+    #[must_use]
     pub fn from_file(file: File) -> Response<File> {
+        #[allow(clippy::cast_possible_truncation)]
         let file_size = file.metadata().ok().map(|v| v.len() as usize);
 
         Response::new(
@@ -553,6 +588,7 @@ impl Response<File> {
 }
 
 impl Response<Cursor<Vec<u8>>> {
+    /// Create [Response] from heap data
     pub fn from_data<D>(data: D) -> Response<Cursor<Vec<u8>>>
     where
         D: Into<Vec<u8>>,
@@ -569,6 +605,11 @@ impl Response<Cursor<Vec<u8>>> {
         )
     }
 
+    /// Create [Response] from kind of string
+    ///
+    /// # Panics
+    ///
+    ///
     pub fn from_string<S>(data: S) -> Response<Cursor<Vec<u8>>>
     where
         S: Into<String>,
@@ -578,10 +619,7 @@ impl Response<Cursor<Vec<u8>>> {
 
         Response::new(
             StatusCode(200),
-            vec![
-                Header::from_bytes(&b"Content-Type"[..], &b"text/plain; charset=UTF-8"[..])
-                    .unwrap(),
-            ],
+            vec![Header::from_bytes(b"Content-Type", b"text/plain; charset=UTF-8").unwrap()],
             Cursor::new(data.into_bytes()),
             Some(data_len),
             None,
@@ -605,6 +643,8 @@ impl Response<io::Empty> {
     }
 
     /// DEPRECATED. Use `empty` instead.
+    #[must_use]
+    #[deprecated = "replaced by empty()"]
     pub fn new_empty(status_code: StatusCode) -> Response<io::Empty> {
         Response::empty(status_code)
     }
@@ -677,7 +717,7 @@ mod tests {
 
     #[test]
     fn test_with_header() -> Result<(), HeaderError> {
-        let mut response = Response::new_empty(200.into());
+        let mut response = Response::empty(200);
 
         response = response.with_header(Header::from_str("Content-Type: text/plain")?)?;
 
@@ -691,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_with_headers() -> Result<(), HeaderError> {
-        let mut response = Response::new_empty(200.into());
+        let mut response = Response::empty(200);
 
         response = response.with_headers(Vec::from([
             Header::from_str("Content-Type: text/plain")?,

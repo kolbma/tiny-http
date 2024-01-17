@@ -10,10 +10,13 @@ use std::{
 /// Unified listener. Either a [`TcpListener`] or [`std::os::unix::net::UnixListener`]
 #[allow(missing_debug_implementations)]
 pub enum Listener {
+    /// [TcpListener] socket with [SocketConfig]
     #[cfg(feature = "socket2")]
     Tcp(TcpListener, SocketConfig),
+    /// [TcpListener] socket
     #[cfg(not(feature = "socket2"))]
     Tcp(TcpListener),
+    /// [unix_net::UnixListener] socket
     #[cfg(unix)]
     Unix(unix_net::UnixListener),
 }
@@ -159,18 +162,29 @@ impl From<unix_net::UnixStream> for Connection {
     }
 }
 
+/// Address of configuration  
+/// Unified listen socket address. Either a `Vec` of [`SocketAddr`] or [`std::os::unix::net::SocketAddr`].
 #[derive(Debug, Clone)]
 pub enum ConfigListenAddr {
+    /// [SocketAddr] for IP net
     IP(Vec<SocketAddr>),
+    /// [PathBuf] for `Unix`socket
     #[cfg(unix)]
     // TODO: use SocketAddr when bind_addr is stabilized
     Unix(PathBuf),
 }
 impl ConfigListenAddr {
+    /// Create `[ConfigListenAddr]` from `IP` addresses
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when `addrs` are no socket addresses
+    ///
     pub fn from_socket_addrs<A: ToSocketAddrs>(addrs: A) -> std::io::Result<Self> {
         addrs.to_socket_addrs().map(|it| Self::IP(it.collect()))
     }
 
+    /// Create `[ConfigListenAddr]` from `path`
     #[cfg(unix)]
     pub fn unix_from_path<P: Into<PathBuf>>(path: P) -> Self {
         Self::Unix(path.into())
@@ -239,11 +253,15 @@ impl ConfigListenAddr {
 /// Unified listen socket address. Either a [`SocketAddr`] or [`std::os::unix::net::SocketAddr`].
 #[derive(Debug, Clone)]
 pub enum ListenAddr {
+    /// [SocketAddr] for IP net
     IP(SocketAddr),
+    /// Unix [unix_net::SocketAddr]
     #[cfg(unix)]
     Unix(unix_net::SocketAddr),
 }
 impl ListenAddr {
+    /// Get `[SocketAddr]` if it is an `IP` else `None`
+    #[must_use]
     pub fn to_ip(self) -> Option<SocketAddr> {
         match self {
             Self::IP(s) => Some(s),
@@ -255,6 +273,7 @@ impl ListenAddr {
     /// Gets the Unix socket address.
     ///
     /// This is also available on non-Unix platforms, for ease of use, but always returns `None`.
+    #[must_use]
     #[cfg(unix)]
     pub fn to_unix(self) -> Option<unix_net::SocketAddr> {
         match self {
@@ -292,15 +311,16 @@ impl std::fmt::Display for ListenAddr {
 ///
 /// # Defaults
 ///
-/// keep_alive: true  
-/// no_delay: true  
-/// read_timeout: 10s  
-/// tcp_keepalive_interval: None  
-/// tcp_keepalive_time: 5s  
-/// write_timeout: 10s
+/// `keep_alive`: true  
+/// `no_delay`: true  
+/// `read_timeout`: 10s  
+/// `tcp_keepalive_interval`: None  
+/// `tcp_keepalive_time`: 5s  
+/// `write_timeout`: 10s
 ///
 #[cfg(feature = "socket2")]
 #[derive(Clone, Debug)]
+#[allow(missing_docs)]
 pub struct SocketConfig {
     pub keep_alive: bool,
     pub no_delay: bool,

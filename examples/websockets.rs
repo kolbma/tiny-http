@@ -94,7 +94,7 @@ fn main() {
                 }
             }) {
                 None => {
-                    let response = tiny_http::Response::new_empty(tiny_http::StatusCode(400));
+                    let response = tiny_http::Response::empty(400);
                     request.respond(response).expect("Responded");
                     return;
                 }
@@ -102,7 +102,7 @@ fn main() {
             };
 
             // building the "101 Switching Protocols" response
-            let response = tiny_http::Response::new_empty(tiny_http::StatusCode(101))
+            let response = tiny_http::Response::empty(101)
                 .with_headers(Vec::from([
                     "Upgrade: websocket".parse::<tiny_http::Header>().unwrap(),
                     "Connection: Upgrade".parse::<tiny_http::Header>().unwrap(),

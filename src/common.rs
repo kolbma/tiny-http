@@ -12,6 +12,8 @@ pub struct StatusCode(pub u16);
 impl StatusCode {
     /// Returns the default reason phrase for this status code.
     /// For example the status code 404 corresponds to "Not Found".
+    ///
+    #[must_use]
     pub fn default_reason_phrase(&self) -> &'static str {
         match self.0 {
             100 => "Continue",
@@ -85,18 +87,21 @@ impl StatusCode {
 
 impl From<i8> for StatusCode {
     fn from(in_code: i8) -> StatusCode {
+        #[allow(clippy::cast_sign_loss)]
         StatusCode(in_code as u16)
     }
 }
 
 impl From<u8> for StatusCode {
     fn from(in_code: u8) -> StatusCode {
+        #[allow(clippy::cast_lossless)]
         StatusCode(in_code as u16)
     }
 }
 
 impl From<i16> for StatusCode {
     fn from(in_code: i16) -> StatusCode {
+        #[allow(clippy::cast_sign_loss)]
         StatusCode(in_code as u16)
     }
 }
@@ -109,12 +114,14 @@ impl From<u16> for StatusCode {
 
 impl From<i32> for StatusCode {
     fn from(in_code: i32) -> StatusCode {
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         StatusCode(in_code as u16)
     }
 }
 
 impl From<u32> for StatusCode {
     fn from(in_code: u32) -> StatusCode {
+        #[allow(clippy::cast_possible_truncation)]
         StatusCode(in_code as u16)
     }
 }
@@ -152,24 +159,27 @@ impl PartialOrd<StatusCode> for u16 {
 /// Represents a HTTP header.
 #[derive(Debug, Clone)]
 pub struct Header {
+    /// `field` of [Header]
     pub field: HeaderField,
+    /// `value` for [HeaderField]
     pub value: AsciiString,
 }
 
 impl Header {
     /// Builds a `Header` from two `Vec<u8>`s or two `&[u8]`s.
     ///
-    /// Example:
+    /// # Errors
+    ///
+    /// - mapped `FromAsciiError` for `header`
+    /// - mapped `FromAsciiError` for `value`
+    ///
+    /// # Examples
     ///
     /// ```
     /// let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap();
     /// ```
     #[allow(clippy::result_unit_err)]
-    pub fn from_bytes<B1, B2>(header: B1, value: B2) -> Result<Header, ()>
-    where
-        B1: Into<Vec<u8>> + AsRef<[u8]>,
-        B2: Into<Vec<u8>> + AsRef<[u8]>,
-    {
+    pub fn from_bytes(header: &[u8], value: &[u8]) -> Result<Header, ()> {
         let header = HeaderField::from_bytes(header).or(Err(()))?;
         let value = AsciiString::from_ascii(value).or(Err(()))?;
 
@@ -227,6 +237,12 @@ impl TryFrom<&AsciiStr> for Header {
 pub struct HeaderField(AsciiString);
 
 impl HeaderField {
+    /// Create `[HeaderField]` from `bytes`
+    ///
+    /// # Errors
+    ///
+    /// - `FromAsciiError` for `bytes` conversion
+    ///
     pub fn from_bytes<B>(bytes: B) -> Result<HeaderField, FromAsciiError<B>>
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
@@ -234,10 +250,14 @@ impl HeaderField {
         AsciiString::from_ascii(bytes).map(HeaderField)
     }
 
+    /// Get `[HeaderField]` as `&AsciiStr`
+    #[must_use]
     pub fn as_str(&self) -> &AsciiStr {
         &self.0
     }
 
+    /// Checks `[HeaderField]` for equivalence ignoring case of letters
+    #[must_use]
     pub fn equiv(&self, other: &'static str) -> bool {
         other.eq_ignore_ascii_case(self.as_str().as_str())
     }
@@ -344,6 +364,8 @@ pub enum Method {
 }
 
 impl Method {
+    /// enum [Method] names as `&str`
+    #[must_use]
     pub fn as_str(&self) -> &str {
         match *self {
             Method::Get => "GET",
@@ -501,9 +523,9 @@ mod test {
 
     #[test]
     fn formats_date_correctly() {
-        let http_date = HttpDate::from(SystemTime::UNIX_EPOCH + Duration::from_secs(420895020));
+        let http_date = HttpDate::from(SystemTime::UNIX_EPOCH + Duration::from_secs(420_895_020));
 
-        assert_eq!(http_date.to_string(), "Wed, 04 May 1983 11:17:00 GMT")
+        assert_eq!(http_date.to_string(), "Wed, 04 May 1983 11:17:00 GMT");
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::time::Duration;
 ///
 /// A new thread is created every time all the existing threads are full.
 /// Any idle thread will automatically die after a few seconds.
-pub struct TaskPool {
+pub(crate) struct TaskPool {
     sharing: Arc<Sharing>,
 }
 
@@ -35,19 +35,19 @@ struct Registration<'a> {
 
 impl<'a> Registration<'a> {
     fn new(nb: &'a AtomicUsize) -> Registration<'a> {
-        nb.fetch_add(1, Ordering::Release);
+        let _ = nb.fetch_add(1, Ordering::Release);
         Registration { nb }
     }
 }
 
-impl<'a> Drop for Registration<'a> {
+impl Drop for Registration<'_> {
     fn drop(&mut self) {
-        self.nb.fetch_sub(1, Ordering::Release);
+        let _ = self.nb.fetch_sub(1, Ordering::Release);
     }
 }
 
 impl TaskPool {
-    pub fn new() -> TaskPool {
+    pub(crate) fn new() -> TaskPool {
         let pool = TaskPool {
             sharing: Arc::new(Sharing {
                 todo: Mutex::new(VecDeque::new()),
@@ -66,7 +66,7 @@ impl TaskPool {
 
     /// Executes a function in a thread.
     /// If no thread is available, spawns a new one.
-    pub fn spawn(&self, code: Box<dyn FnMut() + Send>) {
+    pub(crate) fn spawn(&self, code: Box<dyn FnMut() + Send>) {
         let mut queue = self.sharing.todo.lock().unwrap();
 
         if self.sharing.waiting_tasks.load(Ordering::Acquire) == 0 {
@@ -80,7 +80,7 @@ impl TaskPool {
     fn add_thread(&self, initial_fn: Option<Box<dyn FnMut() + Send>>) {
         let sharing = self.sharing.clone();
 
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             let sharing = sharing;
             let _active_guard = Registration::new(&sharing.active_tasks);
 

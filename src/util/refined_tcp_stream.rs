@@ -118,7 +118,7 @@ impl Write for Stream {
     }
 }
 
-pub struct RefinedTcpStream {
+pub(crate) struct RefinedTcpStream {
     stream: Stream,
     close_read: bool,
     close_write: bool,
@@ -162,11 +162,11 @@ impl RefinedTcpStream {
 impl Drop for RefinedTcpStream {
     fn drop(&mut self) {
         if self.close_read {
-            self.stream.shutdown(Shutdown::Read).ok();
+            let _ = self.stream.shutdown(Shutdown::Read);
         }
 
         if self.close_write {
-            self.stream.shutdown(Shutdown::Write).ok();
+            let _ = self.stream.shutdown(Shutdown::Write);
         }
     }
 }

@@ -7,7 +7,7 @@ use std::sync::mpsc::Sender;
 /// If the limit is reached, it returns EOF. If the limit is not reached
 /// when the destructor is called, the remaining bytes will be read and
 /// thrown away.
-pub struct EqualReader<R>
+pub(crate) struct EqualReader<R>
 where
     R: Read,
 {
@@ -20,7 +20,7 @@ impl<R> EqualReader<R>
 where
     R: Read,
 {
-    pub fn new(reader: R, size: usize, tx: Option<Sender<IoResult<()>>>) -> Self {
+    pub(crate) fn new(reader: R, size: usize, tx: Option<Sender<IoResult<()>>>) -> Self {
         Self {
             reader,
             size,
@@ -68,14 +68,14 @@ where
             match self.reader.read(buf) {
                 Ok(0) => {
                     if let Some(last_read_signal) = &self.last_read_signal {
-                        last_read_signal.send(Ok(())).ok();
+                        let _ = last_read_signal.send(Ok(()));
                     }
                     break;
                 }
                 Ok(nr_bytes) => self.size -= nr_bytes,
                 Err(e) => {
                     if let Some(last_read_signal) = &self.last_read_signal {
-                        last_read_signal.send(Err(e)).ok();
+                        let _ = last_read_signal.send(Err(e));
                     }
                     break;
                 }
@@ -101,12 +101,12 @@ mod tests {
             let mut equal_reader = EqualReader::new(org_reader.by_ref(), 5, None);
 
             let mut string = String::new();
-            equal_reader.read_to_string(&mut string).unwrap();
+            let _ = equal_reader.read_to_string(&mut string).unwrap();
             assert_eq!(string, "hello");
         }
 
         let mut string = String::new();
-        org_reader.read_to_string(&mut string).unwrap();
+        let _ = org_reader.read_to_string(&mut string).unwrap();
         assert_eq!(string, " world");
     }
 
@@ -117,17 +117,17 @@ mod tests {
         let mut string = String::new();
 
         let mut equal_reader = EqualReader::new(reader.clone(), 5, None);
-        equal_reader.read_to_string(&mut string).unwrap();
+        let _ = equal_reader.read_to_string(&mut string).unwrap();
         assert_eq!(string, "hello");
 
         string.clear();
-        equal_reader.read_to_string(&mut string).unwrap();
+        let _ = equal_reader.read_to_string(&mut string).unwrap();
         assert_eq!(string.len(), 0);
         drop(equal_reader);
 
         let mut equal_reader = EqualReader::new(reader.clone(), data.len() + 1, None);
         string.clear();
-        equal_reader.read_to_string(&mut string).unwrap();
+        let _ = equal_reader.read_to_string(&mut string).unwrap();
         assert_eq!(string.len(), data.len());
         drop(equal_reader);
 
@@ -137,7 +137,7 @@ mod tests {
 
         let mut equal_reader = EqualReader::new(reader.clone(), 0, None);
         string.clear();
-        equal_reader.read_to_string(&mut string).unwrap();
+        let _ = equal_reader.read_to_string(&mut string).unwrap();
         assert_eq!(string.len(), 0);
         drop(equal_reader);
     }
@@ -155,7 +155,7 @@ mod tests {
         }
 
         let mut string = String::new();
-        org_reader.read_to_string(&mut string).unwrap();
+        let _ = org_reader.read_to_string(&mut string).unwrap();
         assert_eq!(string, " world");
     }
 }

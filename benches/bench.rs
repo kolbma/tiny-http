@@ -42,7 +42,7 @@ fn sequential_requests(bencher: &mut test::Bencher) {
 
         assert_eq!(request.method(), &Method::Get);
 
-        let _ = request.respond(tiny_http::Response::new_empty(tiny_http::StatusCode(204)));
+        let _ = request.respond(tiny_http::Response::empty(204));
     });
 }
 
@@ -74,7 +74,7 @@ fn parallel_requests(bencher: &mut test::Bencher) {
 
             assert_eq!(request.method(), &Method::Get);
 
-            let _ = request.respond(tiny_http::Response::new_empty(tiny_http::StatusCode(204)));
+            let _ = request.respond(tiny_http::Response::empty(204));
         }
     });
 }

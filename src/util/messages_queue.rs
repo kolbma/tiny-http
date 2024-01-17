@@ -7,7 +7,7 @@ enum Control<T> {
     Unblock,
 }
 
-pub struct MessagesQueue<T>
+pub(crate) struct MessagesQueue<T>
 where
     T: Send,
 {
@@ -19,7 +19,7 @@ impl<T> MessagesQueue<T>
 where
     T: Send,
 {
-    pub fn with_capacity(capacity: usize) -> Arc<MessagesQueue<T>> {
+    pub(crate) fn with_capacity(capacity: usize) -> Arc<MessagesQueue<T>> {
         Arc::new(MessagesQueue {
             queue: Mutex::new(VecDeque::with_capacity(capacity)),
             condvar: Condvar::new(),
@@ -27,22 +27,22 @@ where
     }
 
     /// Pushes an element to the queue.
-    pub fn push(&self, value: T) {
+    pub(crate) fn push(&self, value: T) {
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(Control::Elem(value));
         self.condvar.notify_one();
     }
 
     /// Unblock one thread stuck in pop loop.
-    pub fn unblock(&self) {
+    pub(crate) fn unblock(&self) {
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(Control::Unblock);
         self.condvar.notify_one();
     }
 
     /// Pops an element. Blocks until one is available.
-    /// Returns None in case unblock() was issued.
-    pub fn pop(&self) -> Option<T> {
+    /// Returns None in case `unblock()` was issued.
+    pub(crate) fn pop(&self) -> Option<T> {
         let mut queue = self.queue.lock().unwrap();
 
         loop {
@@ -57,7 +57,7 @@ where
     }
 
     /// Tries to pop an element without blocking.
-    pub fn try_pop(&self) -> Option<T> {
+    pub(crate) fn try_pop(&self) -> Option<T> {
         let mut queue = self.queue.lock().unwrap();
         match queue.pop_front() {
             Some(Control::Elem(value)) => Some(value),
@@ -67,8 +67,8 @@ where
 
     /// Tries to pop an element without blocking
     /// more than the specified timeout duration
-    /// or unblock() was issued
-    pub fn pop_timeout(&self, timeout: Duration) -> Option<T> {
+    /// or `unblock()` was issued
+    pub(crate) fn pop_timeout(&self, timeout: Duration) -> Option<T> {
         let mut queue = self.queue.lock().unwrap();
         let mut duration = timeout;
         loop {

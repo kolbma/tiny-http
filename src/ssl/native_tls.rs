@@ -59,16 +59,16 @@ impl Write for NativeTlsStream {
 pub(crate) struct NativeTlsContext(native_tls::TlsAcceptor);
 
 impl NativeTlsContext {
-    pub fn from_pem(
-        certificates: Vec<u8>,
-        private_key: Zeroizing<Vec<u8>>,
+    pub(crate) fn from_pem(
+        certificates: &[u8],
+        private_key: &Zeroizing<Vec<u8>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let identity = native_tls::Identity::from_pkcs8(&certificates, &private_key)?;
+        let identity = native_tls::Identity::from_pkcs8(certificates, private_key)?;
         let acceptor = native_tls::TlsAcceptor::new(identity)?;
         Ok(Self(acceptor))
     }
 
-    pub fn accept(
+    pub(crate) fn accept(
         &self,
         stream: Connection,
     ) -> Result<NativeTlsStream, Box<dyn Error + Send + Sync + 'static>> {

@@ -87,24 +87,32 @@
 //! # let response = tiny_http::Response::from_file(File::open(&Path::new("image.png")).unwrap());
 //! let _ = request.respond(response);
 //! ```
-// #![warn(clippy::pedantic)]
+#![warn(clippy::pedantic)]
 #![warn(
     missing_debug_implementations,
-    // missing_docs,
+    missing_docs,
     non_ascii_idents,
     rust_2018_compatibility,
+    rust_2021_incompatible_closure_captures,
+    rust_2021_incompatible_or_patterns,
+    rust_2021_prefixes_incompatible_syntax,
+    rust_2021_prelude_collisions,
+    single_use_lifetimes,
     trivial_casts,
     trivial_numeric_casts,
-    // unreachable_pub,
+    unreachable_pub,
     unsafe_code,
-    // unused_crate_dependencies,
+    unused_crate_dependencies,
     unused_extern_crates,
     unused_import_braces,
+    unused_lifetimes,
+    unused_macros,
     unused_qualifications,
-    // unused_results
+    unused_results
 )]
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
+#![allow(clippy::module_name_repetitions)]
 
 #[cfg(any(
     feature = "ssl-openssl",
@@ -130,10 +138,21 @@ use connection::Connection;
 use util::{MessagesQueue, RefinedTcpStream};
 
 pub use common::{HTTPVersion, Header, HeaderField, Method, StatusCode};
-pub use connection::{ConfigListenAddr, ListenAddr, Listener, SocketConfig};
+#[cfg(feature = "socket2")]
+pub use connection::SocketConfig;
+pub use connection::{ConfigListenAddr, ListenAddr, Listener};
 pub use request::{ReadWrite, Request};
 pub use response::{Response, ResponseBox};
 pub use test::TestRequest;
+
+#[cfg(test)]
+use fdlimit as _;
+#[cfg(test)]
+use rlimit as _;
+#[cfg(test)]
+use rustc_serialize as _;
+#[cfg(test)]
+use sha1_smol as _;
 
 mod client;
 mod common;
@@ -226,6 +245,10 @@ pub struct SslConfig {
 
 impl Server {
     /// Shortcut for a simple server on a specific address.
+    ///
+    /// # Errors
+    ///
+    /// `std::io::Error` when `addr` is no socket address
     #[inline]
     pub fn http<A>(addr: A) -> Result<Server, Box<dyn Error + Send + Sync + 'static>>
     where
@@ -240,6 +263,12 @@ impl Server {
     }
 
     /// Shortcut for an HTTPS server on a specific address.
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when `addr` is no socket address
+    /// - `std::io::Error` when socket binding failed
+    ///
     #[cfg(any(
         feature = "ssl-openssl",
         feature = "ssl-rustls",
@@ -261,9 +290,15 @@ impl Server {
         })
     }
 
+    /// Shortcut for a UNIX socket server at a specific path
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when `addr` is no socket address
+    /// - `std::io::Error` when socket binding failed
+    ///
     #[cfg(unix)]
     #[inline]
-    /// Shortcut for a UNIX socket server at a specific path
     pub fn http_unix(
         path: &std::path::Path,
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
@@ -276,6 +311,11 @@ impl Server {
     }
 
     /// Builds a new server that listens on the specified address.
+    ///
+    /// # Errors
+    ///
+    /// `std::io::Error` when socket binding failed
+    ///
     pub fn new(config: ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
         #[cfg(feature = "socket2")]
         let listener = config.addr.bind(&config.socket_config)?;
@@ -286,24 +326,19 @@ impl Server {
 
     /// Builds a new server using the specified TCP listener.
     ///
-    /// This is useful if you've constructed TcpListener using some less usual method
+    /// This is useful if you've constructed `TcpListener` using some less usual method
     /// such as from systemd. For other cases, you probably want the `new()` function.
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when socket problem
+    ///
+    #[allow(clippy::too_many_lines)]
     pub fn from_listener<L: Into<Listener>>(
         listener: L,
         ssl_config: Option<SslConfig>,
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
-        let listener = listener.into();
-        // building the "close" variable
-        let close_trigger = Arc::new(AtomicBool::new(false));
-
-        // building the TcpListener
-        let (server, local_addr) = {
-            let local_addr = listener.local_addr()?;
-            log::debug!("Server listening on {}", local_addr);
-            (listener, local_addr)
-        };
-
-        // building the SSL capabilities
+        // compile check
         #[cfg(any(
             all(feature = "ssl-openssl", feature = "ssl-rustls"),
             all(feature = "ssl-openssl", feature = "ssl-native-tls"),
@@ -312,6 +347,7 @@ impl Server {
         compile_error!(
             "Only one feature from 'ssl-openssl', 'ssl-rustls', 'ssl-native-tls' can be enabled at the same time"
         );
+        // types
         #[cfg(not(any(
             feature = "ssl-openssl",
             feature = "ssl-rustls",
@@ -324,6 +360,19 @@ impl Server {
             feature = "ssl-native-tls"
         ))]
         type SslContext = crate::ssl::SslContextImpl;
+
+        let listener = listener.into();
+        // building the "close" variable
+        let close_trigger = Arc::new(AtomicBool::new(false));
+
+        // building the TcpListener
+        let (server, local_addr) = {
+            let local_addr = listener.local_addr()?;
+            log::debug!("Server listening on {}", local_addr);
+            (listener, local_addr)
+        };
+
+        // building the SSL capabilities
         let ssl: Option<SslContext> = {
             match ssl_config {
                 #[cfg(any(
@@ -332,8 +381,8 @@ impl Server {
                     feature = "ssl-native-tls"
                 ))]
                 Some(config) => Some(SslContext::from_pem(
-                    config.certificate,
-                    Zeroizing::new(config.private_key),
+                    &config.certificate,
+                    &Zeroizing::new(config.private_key),
                 )?),
                 #[cfg(not(any(
                     feature = "ssl-openssl",
@@ -354,7 +403,7 @@ impl Server {
 
         let inside_close_trigger = close_trigger.clone();
         let inside_messages = messages.clone();
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             // a tasks pool is used to dispatch the connections into threads
             let tasks_pool = util::TaskPool::new();
 
@@ -403,7 +452,10 @@ impl Server {
                                     let (sender, receiver) = mpsc::channel();
                                     for rq in client {
                                         messages.push(rq.with_notify_sender(sender.clone()).into());
-                                        receiver.recv().unwrap();
+                                        #[allow(unused_variables)]
+                                        if let Err(err) = receiver.recv() {
+                                            log::error!("receiver channel hangup: {err:?}");
+                                        }
                                     }
                                 } else {
                                     for rq in client {
@@ -414,9 +466,9 @@ impl Server {
                         }));
                     }
 
-                    Err(e) => {
-                        log::error!("Error accepting new client: {}", e);
-                        inside_messages.push(e.into());
+                    Err(err) => {
+                        log::error!("Error accepting new client: {err:?}");
+                        inside_messages.push(err.into());
                         break;
                     }
                 }
@@ -435,24 +487,32 @@ impl Server {
     /// Returns an iterator for all the incoming requests.
     ///
     /// The iterator will return `None` if the server socket is shutdown.
+    #[must_use]
     #[inline]
     pub fn incoming_requests(&self) -> IncomingRequests<'_> {
         IncomingRequests { server: self }
     }
 
     /// Returns the address the server is listening to.
+    #[must_use]
     #[inline]
     pub fn server_addr(&self) -> ListenAddr {
         self.listening_addr.clone()
     }
 
     /// Returns the number of clients currently connected to the server.
+    #[must_use]
     pub fn num_connections(&self) -> usize {
         unimplemented!()
         //self.requests_receiver.lock().len()
     }
 
     /// Blocks until an HTTP request has been submitted and returns it.
+    ///
+    /// # Errors
+    ///
+    /// - `[Message::Error]`
+    ///
     pub fn recv(&self) -> IoResult<Request> {
         match self.messages.pop() {
             Some(Message::Error(err)) => Err(err),
@@ -462,6 +522,11 @@ impl Server {
     }
 
     /// Same as `recv()` but doesn't block longer than timeout
+    ///    
+    /// # Errors
+    ///
+    /// - `[Message::Error]`
+    ///
     pub fn recv_timeout(&self, timeout: Duration) -> IoResult<Option<Request>> {
         match self.messages.pop_timeout(timeout) {
             Some(Message::Error(err)) => Err(err),
@@ -471,6 +536,11 @@ impl Server {
     }
 
     /// Same as `recv()` but doesn't block.
+    ///
+    /// # Errors
+    ///
+    /// - `[Message::Error]`
+    ///
     pub fn try_recv(&self) -> IoResult<Option<Request>> {
         match self.messages.try_pop() {
             Some(Message::Error(err)) => Err(err),
@@ -479,7 +549,7 @@ impl Server {
         }
     }
 
-    /// Unblock thread stuck in recv() or incoming_requests().
+    /// Unblock thread stuck in `recv()` or `incoming_requests()`.
     /// If there are several such threads, only one is unblocked.
     /// This method allows graceful shutdown of server.
     pub fn unblock(&self) {

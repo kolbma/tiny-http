@@ -66,8 +66,8 @@ pub(crate) struct RustlsContext(Arc<rustls::ServerConfig>);
 
 impl RustlsContext {
     pub(crate) fn from_pem(
-        certificates: Vec<u8>,
-        private_key: Zeroizing<Vec<u8>>,
+        certificates: &Vec<u8>,
+        private_key: &Zeroizing<Vec<u8>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let certificate_chain: Vec<rustls::pki_types::CertificateDer<'_>> =
             rustls_pemfile::certs(&mut certificates.as_slice())
