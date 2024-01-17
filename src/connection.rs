@@ -138,17 +138,6 @@ impl ConfigListenAddr {
             .map(|it| Self::IP((it.collect(), None)))
     }
 
-    #[cfg(feature = "socket2")]
-    pub fn with_config(mut self, config: SocketConfig) -> Self {
-        match &mut self {
-            ConfigListenAddr::IP((_, cfg)) => {
-                *cfg = Some(config);
-                self
-            }
-            ConfigListenAddr::Unix(_) => self,
-        }
-    }
-
     #[cfg(unix)]
     pub fn unix_from_path<P: Into<PathBuf>>(path: P) -> Self {
         Self::Unix(path.into())
