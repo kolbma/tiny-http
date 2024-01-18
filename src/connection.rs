@@ -34,12 +34,13 @@ impl Listener {
 
     #[cfg(feature = "socket2")]
     pub(crate) fn accept(&self) -> std::io::Result<(Connection, Option<SocketAddr>)> {
-        use log::error;
+        use crate::log;
 
         match self {
             Self::Tcp(l, cfg) => l.accept().map(|(mut conn, addr)| {
                 if let Err(err) = set_socket_cfg(&mut conn, cfg) {
-                    error!("socket config fail: {err:?}");
+                    log::error!("socket config fail: {err:?}");
+                    let _ = err;
                 }
                 (Connection::from(conn), Some(addr))
             }),
