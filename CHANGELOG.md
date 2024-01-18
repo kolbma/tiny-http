@@ -15,10 +15,12 @@
   - 431 Request Header Fields Too Large when line is over 2048 bytes
   - complete header is limited to 8192 bytes
 
-* BREAKING CHANGE: Response-header-methods return a Result with HeaderError if the header got not added
+* BREAKING CHANGE: Response-header-methods return a Result with HeaderError if the header got not added.
 
   Affected methods are add_header(), add_headers(), filter_header(), with_header(), with_headers().  
   Response.filter_header(HeaderField) prevents the HeaderField to be sent in the Response.
+
+* BREAKING CHANGE: ServerConfig has field ssl for SslConfig only when any ssl feature is enabled.
 
 * New feature _native-tls_
 
@@ -29,6 +31,8 @@
 * Update rustls to v0.22, rustls-pemfile to v2.0
 
 * New example _router_ how route and response handling could be implemented
+
+* New example _socket-config-server_ to configure socket
 
 ## 0.12.0
 * Bumped the minimum compiler version tested by CI to 1.56 - this is necessary due to an increasing number of dependencies
