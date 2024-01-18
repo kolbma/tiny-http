@@ -46,7 +46,7 @@ jobs:
           - '1.60'
         features:
           - ''
-          - native_tls
+          - ssl-native-tls
           - ssl
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
           cargo --version
 
   test_native_tls:
-    name: Build & Test native_tls feature
+    name: Build & Test ssl-native-tls feature
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -97,7 +97,7 @@ jobs:
           cargo --version
 
   test_rustls:
-    name: Build & Test rustls feature
+    name: Build & Test ssl-rustls feature
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -138,8 +138,8 @@ jobs:
         features:
           - ''
           - log
-          - native_tls
-          - rustls
+          - ssl-native-tls
+          - ssl-rustls
           - ssl
     steps:
       - uses: actions/checkout@v4
