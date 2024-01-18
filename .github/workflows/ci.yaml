@@ -25,13 +25,15 @@ jobs:
           components: rustfmt, clippy
 
       - name: Clippy
-        run: cargo --version
-        run: rustc --version
-        run: cargo clippy ${{ matrix.no-default-features }} ${{ matrix.features }}
+        run: |
+          cargo clippy ${{ matrix.no-default-features }} ${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Format
-        run: cargo --version
-        run: cargo fmt -- --check
+        run: |
+          cargo fmt -- --check
+          cargo --version
 
   test_log:
     name: Build & Test log feature
@@ -54,13 +56,15 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Build
-        run: cargo --version
-        run: rustc --version
-        run: cargo build --release --no-default-features --features log,${{ matrix.features }}
+        run: |
+          cargo build --release --no-default-features --features log,${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Test
-        run: cargo --version
-        run: cargo test --no-default-features --features log,${{ matrix.features }}
+        run: |
+          cargo test --no-default-features --features log,${{ matrix.features }}
+          cargo --version
 
   test_native_tls:
     name: Build & Test native_tls feature
@@ -82,13 +86,15 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Build
-        run: cargo --version
-        run: rustc --version
-        run: cargo build --release --no-default-features --features ssl-native-tls,${{ matrix.features }}
+        run: |
+          cargo build --release --no-default-features --features ssl-native-tls,${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Test
-        run: cargo --version
-        run: cargo test --no-default-features --features ssl-native-tls,${{ matrix.features }}
+        run: |
+          cargo test --no-default-features --features ssl-native-tls,${{ matrix.features }}
+          cargo --version
 
   test_rustls:
     name: Build & Test rustls feature
@@ -110,13 +116,15 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Build
-        run: cargo --version
-        run: rustc --version
-        run: cargo build --release --no-default-features --features ssl-rustls,${{ matrix.features }}
+        run: |
+          cargo build --release --no-default-features --features ssl-rustls,${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Test
-        run: cargo --version
-        run: cargo test --no-default-features --features ssl-rustls,${{ matrix.features }}
+        run: |
+          cargo test --no-default-features --features ssl-rustls,${{ matrix.features }}  
+          cargo --version
 
   test_socket2:
     name: Build & Test socket2 feature
@@ -141,13 +149,15 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Build
-        run: cargo --version
-        run: rustc --version
-        run: cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+        run: |
+          cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Test
-        run: cargo --version
-        run: cargo test --no-default-features --features ssl,${{ matrix.features }}
+        run: |
+          cargo test --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version
 
   test_ssl:
     name: Build & Test ssl feature
@@ -169,10 +179,12 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Build
-        run: cargo --version
-        run: rustc --version
-        run: cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+        run: |
+          cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Test
-        run: cargo --version
-        run: cargo test --no-default-features --features ssl,${{ matrix.features }}
+        run: |
+          cargo test --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version
