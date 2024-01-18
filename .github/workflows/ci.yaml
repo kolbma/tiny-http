@@ -6,33 +6,108 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        no-default-features:
+          - --no-default-features
+          - ''
         features:
-          - default
-          - ssl-openssl
-          - ssl-rustls
-          - ssl-native-tls
+          - ''
+          - --features log
+          - --features socket2
+          - --features ssl-openssl
+          - --features ssl-rustls
+          - --features ssl-native-tls
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: rustfmt, clippy
 
       - name: Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --features ${{ matrix.features }}
+        run: cargo clippy ${{ matrix.no-default-features }} ${{ matrix.features }}
 
       - name: Format
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: -- --check
+        run: cargo fmt -- --check
 
-  test:
-    name: Build & Test
+  test_log:
+    name: Build & Test log feature
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - 1.60
+        features:
+          - ''
+          - native_tls
+          - ssl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: cargo build --release --no-default-features --features log,${{ matrix.features }}
+
+      - name: Test
+        run: cargo test --no-default-features --features log,${{ matrix.features }}
+
+  test_native_tls:
+    name: Build & Test native_tls feature
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - 1.60
+        features:
+          - ''
+          - log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: cargo build --release --no-default-features --features ssl-native-tls,${{ matrix.features }}
+
+      - name: Test
+        run: cargo test --no-default-features --features ssl-native-tls,${{ matrix.features }}
+
+  test_rustls:
+    name: Build & Test rustls feature
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - 1.61
+        features:
+          - ''
+          - log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: cargo build --release --no-default-features --features ssl-rustls,${{ matrix.features }}
+
+      - name: Test
+        run: cargo test --no-default-features --features ssl-rustls,${{ matrix.features }}
+
+  test_socket2:
+    name: Build & Test socket2 feature
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -41,26 +116,45 @@ jobs:
           - nightly
           - 1.63
         features:
-          - default
-          - ssl-openssl
-          - ssl-rustls
-          - ssl-native-tls
+          - ''
+          - log
+          - native_tls
+          - rustls
+          - ssl
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          override: true
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --features ${{ matrix.features }}
+        run: cargo build --release --no-default-features --features ssl,${{ matrix.features }}
 
       - name: Test
-        uses: actions-rs/cargo@v1
+        run: cargo test --no-default-features --features ssl,${{ matrix.features }}
+
+  test_ssl:
+    name: Build & Test ssl feature
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - 1.60
+        features:
+          - ''
+          - log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
-          command: test
-          args: --features ${{ matrix.features }}
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+
+      - name: Test
+        run: cargo test --no-default-features --features ssl,${{ matrix.features }}
