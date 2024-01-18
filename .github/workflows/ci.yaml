@@ -150,13 +150,13 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+          cargo build --release --no-default-features --features socket2,${{ matrix.features }}
           cargo --version
           rustc --version
 
       - name: Test
         run: |
-          cargo test --no-default-features --features ssl,${{ matrix.features }}
+          cargo test --no-default-features --features socket2,${{ matrix.features }}
           cargo --version
 
   test_ssl:
