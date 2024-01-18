@@ -43,7 +43,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.60
+          - '1.60'
         features:
           - ''
           - native_tls
@@ -74,7 +74,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.60
+          - '1.60'
         features:
           - ''
           - log
@@ -104,7 +104,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.61
+          - '1.61'
         features:
           - ''
           - log
@@ -134,7 +134,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.63
+          - '1.63'
         features:
           - ''
           - log
@@ -167,7 +167,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.60
+          - '1.60'
         features:
           - ''
           - log
