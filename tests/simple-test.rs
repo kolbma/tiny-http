@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::io::{Read, Write};
 
@@ -21,9 +21,9 @@ fn basic_handling() {
         .respond(tiny_http::Response::from_string("hello world".to_owned()))
         .unwrap();
 
-    server.try_recv().unwrap();
+    let _ = server.try_recv().unwrap();
 
     let mut content = String::new();
-    stream.read_to_string(&mut content).unwrap();
+    let _ = stream.read_to_string(&mut content).unwrap();
     assert!(content.ends_with("hello world"));
 }

@@ -1,9 +1,11 @@
 #![feature(test)]
+#![allow(unused_crate_dependencies)]
 
 use std::io::{Cursor, Read};
 
 extern crate test;
 
+#[allow(clippy::large_stack_arrays)]
 const READERS: &[&[u8]] = &[
     &[1u8; 0],
     &[2u8; 1],
@@ -59,7 +61,7 @@ fn stack_buf_bench<const N: usize>(bencher: &mut test::Bencher) {
                         }
                     }
 
-                    std::hint::black_box(buf);
+                    let _ = std::hint::black_box(buf);
                 }
             }
         }
@@ -95,7 +97,7 @@ fn vec_bench<const N: usize>(bencher: &mut test::Bencher) {
 
                         buf.truncate(size);
                     }
-                    std::hint::black_box(buf);
+                    let _ = std::hint::black_box(buf);
                 }
             }
         }
@@ -133,7 +135,7 @@ fn vec_stack_buf_bench<const N: usize>(bencher: &mut test::Bencher) {
                                 buf = &mut buf[..size];
                             }
                         }
-                        std::hint::black_box(buf);
+                        let _ = std::hint::black_box(buf);
                     } else {
                         let buf = &mut vec![0u8; N];
                         while size > 0 {
@@ -149,7 +151,7 @@ fn vec_stack_buf_bench<const N: usize>(bencher: &mut test::Bencher) {
 
                             buf.truncate(size);
                         }
-                        std::hint::black_box(buf);
+                        let _ = std::hint::black_box(buf);
                     };
                 }
             }

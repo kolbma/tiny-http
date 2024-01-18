@@ -1,3 +1,5 @@
+#![allow(missing_docs, unused_crate_dependencies)]
+
 #[cfg(feature = "log")]
 use log::error;
 use std::{
@@ -38,13 +40,14 @@ fn post_echo(req: &mut Request) -> Response<Cursor<Vec<u8>>> {
 
 fn main() {
     let routes = HashMap::from([
-        ("GET:/", get_root as RouteHandler),
-        ("GET:/hello", get_hello as RouteHandler),
-        ("POST:/echo", post_echo as RouteHandler),
+        ("GET:/", RouteHandler::from(get_root)),
+        ("GET:/hello", RouteHandler::from(get_hello)),
+        ("POST:/echo", RouteHandler::from(post_echo)),
     ]);
     let server = Server::http("0.0.0.0:3000").unwrap();
     for mut request in server.incoming_requests() {
         let route_key = format!("{}:{}", request.method(), request.url());
+        #[allow(clippy::single_match_else)]
         let response_result = match routes.get(route_key.as_str()) {
             Some(handler) => {
                 let response = handler(&mut request);

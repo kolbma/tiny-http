@@ -87,32 +87,6 @@
 //! # let response = tiny_http::Response::from_file(File::open(&Path::new("image.png")).unwrap());
 //! let _ = request.respond(response);
 //! ```
-#![warn(clippy::pedantic)]
-#![warn(
-    missing_debug_implementations,
-    missing_docs,
-    non_ascii_idents,
-    rust_2018_compatibility,
-    rust_2021_incompatible_closure_captures,
-    rust_2021_incompatible_or_patterns,
-    rust_2021_prefixes_incompatible_syntax,
-    rust_2021_prelude_collisions,
-    single_use_lifetimes,
-    trivial_casts,
-    trivial_numeric_casts,
-    unreachable_pub,
-    unsafe_code,
-    unused_crate_dependencies,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_lifetimes,
-    unused_macros,
-    unused_qualifications,
-    unused_results
-)]
-#![forbid(unsafe_code)]
-#![deny(rust_2018_idioms)]
-#![allow(clippy::module_name_repetitions)]
 
 #[cfg(any(
     feature = "ssl-openssl",

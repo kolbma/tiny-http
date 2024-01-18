@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(missing_docs, unused_crate_dependencies)]
 
 use std::sync::Arc;
 use std::thread;

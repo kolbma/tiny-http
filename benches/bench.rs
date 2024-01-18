@@ -1,8 +1,7 @@
 #![feature(test)]
+#![allow(unused_crate_dependencies)]
 
-extern crate fdlimit;
 extern crate test;
-extern crate tiny_http;
 
 use std::io::Write;
 use std::process::Command;
@@ -16,9 +15,9 @@ fn curl_bench() {
     let port = server.server_addr().to_ip().unwrap().port();
     let num_requests = 10usize;
 
-    match Command::new("curl")
+    let _ = match Command::new("curl")
         .arg("-s")
-        .arg(format!("http://localhost:{}/?[1-{}]", port, num_requests))
+        .arg(format!("http://localhost:{port}/?[1-{num_requests}]"))
         .output()
     {
         Ok(p) => p,

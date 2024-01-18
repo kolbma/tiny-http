@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::sync::Arc;
 use std::thread;
@@ -9,7 +9,7 @@ fn unblock_server() {
     let s = Arc::new(server);
 
     let s1 = s.clone();
-    thread::spawn(move || s1.unblock());
+    let _ = thread::spawn(move || s1.unblock());
 
     // Without unblock this would hang forever
     for _rq in s.incoming_requests() {}

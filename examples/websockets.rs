@@ -1,6 +1,4 @@
-extern crate rustc_serialize;
-extern crate sha1_smol;
-extern crate tiny_http;
+#![allow(missing_docs, unused_crate_dependencies)]
 
 use std::io::Cursor;
 use std::io::Read;
@@ -12,7 +10,7 @@ fn home_page(port: u16) -> tiny_http::Response<Cursor<Vec<u8>>> {
     tiny_http::Response::from_string(format!(
         "
         <script type=\"text/javascript\">
-        var socket = new WebSocket(\"ws://localhost:{}/\", \"ping\");
+        var socket = new WebSocket(\"ws://localhost:{port}/\", \"ping\");
 
         function send(data) {{
             socket.send(data);
@@ -28,8 +26,7 @@ fn home_page(port: u16) -> tiny_http::Response<Cursor<Vec<u8>>> {
         <button onclick=\"send(document.getElementById('msg').value)\">Send</button></p>
         <p>Received: </p>
         <p id=\"result\"></p>
-    ",
-        port
+    "
     ))
     .with_header(
         "Content-type: text/html"
@@ -66,14 +63,11 @@ fn main() {
     let port = server.server_addr().to_ip().unwrap().port();
 
     println!("Server started");
-    println!(
-        "To try this example, open a browser to http://localhost:{}/",
-        port
-    );
+    println!("To try this example, open a browser to http://localhost:{port}/");
 
     for request in server.incoming_requests() {
         // we are handling this websocket connection in a new task
-        spawn(move || {
+        let _ = spawn(move || {
             // checking the "Upgrade" header to check that it is a websocket
             if request
                 .headers()
@@ -125,12 +119,12 @@ fn main() {
                     Ok(n) if n >= 1 => {
                         // "Hello" frame
                         let data = [0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f];
-                        stream.write(&data).ok();
-                        stream.flush().ok();
+                        let _ = stream.write(&data);
+                        let _ = stream.flush();
                     }
                     Ok(_) => panic!("eof ; should never happen"),
                     Err(e) => {
-                        eprintln!("closing connection because: {}", e);
+                        eprintln!("closing connection because: {e}");
                         return;
                     }
                 };

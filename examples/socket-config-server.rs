@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(missing_docs, unused_crate_dependencies)]
 
 #[cfg(feature = "socket2")]
 use std::time::Duration;

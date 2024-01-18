@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(missing_docs, unused_crate_dependencies)]
 
 fn main() {
     use tiny_http::{Response, Server};

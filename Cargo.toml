@@ -51,3 +51,29 @@ rlimit = "0.10.1"
 [package.metadata.docs.rs]
 # Enable just one SSL implementation
 features = ["ssl-openssl"]
+
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+non_ascii_idents = "warn"
+rust_2018_idioms = "deny"
+rust_2021_incompatible_closure_captures = "warn"
+rust_2021_incompatible_or_patterns = "warn"
+rust_2021_prefixes_incompatible_syntax = "warn"
+rust_2021_prelude_collisions = "warn"
+single_use_lifetimes = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unreachable_pub = "warn"
+unsafe_code = "forbid"
+unused_crate_dependencies = "warn"
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macros = "warn"
+unused_qualifications = "warn"
+unused_results = "warn"
+
+[lints.clippy]
+pedantic = "warn"
+module_name_repetitions = "allow"

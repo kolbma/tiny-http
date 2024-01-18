@@ -1,25 +1,21 @@
+#![allow(missing_docs, unused_crate_dependencies)]
+
 use ascii::AsciiString;
 use std::fs;
 use std::path::Path;
 
-extern crate ascii;
-extern crate tiny_http;
-
 fn get_content_type(path: &Path) -> &'static str {
     let extension = match path.extension() {
-        None => return "text/plain",
-        Some(e) => e,
+        None => return "txt",
+        Some(e) => e.to_str().unwrap_or("txt"),
     };
 
-    match extension.to_str().unwrap() {
+    match extension {
         "gif" => "image/gif",
-        "jpg" => "image/jpeg",
-        "jpeg" => "image/jpeg",
+        "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "pdf" => "application/pdf",
-        "htm" => "text/html; charset=utf8",
-        "html" => "text/html; charset=utf8",
-        "txt" => "text/plain; charset=utf8",
+        "htm" | "html" => "text/html; charset=utf8",
         _ => "text/plain; charset=utf8",
     }
 }
@@ -27,10 +23,10 @@ fn get_content_type(path: &Path) -> &'static str {
 fn main() {
     let server = tiny_http::Server::http("0.0.0.0:8000").unwrap();
     let port = server.server_addr().to_ip().unwrap().port();
-    println!("Now listening on port {}", port);
+    println!("Now listening on port {port}");
 
     while let Ok(rq) = server.recv() {
-        println!("{:?}", rq);
+        println!("{rq:?}");
 
         let url = rq.url().to_string();
         let path = Path::new(&url);

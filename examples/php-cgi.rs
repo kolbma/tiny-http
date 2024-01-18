@@ -5,8 +5,7 @@ A web server that redirects every request to a PHP script.
 Usage: php-cgi <php-script-path>
 
 */
-extern crate ascii;
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use ascii::AsAsciiStr;
 
@@ -85,7 +84,7 @@ fn main() {
         let server = server.clone();
         let php_script = php_script.clone();
 
-        spawn(move || {
+        let _ = spawn(move || {
             for rq in server.incoming_requests() {
                 handle(rq, &php_script);
             }
