@@ -1,10 +1,11 @@
 # Changes
 
 ## Unreleased
-* Bumped msrv to 1.61
+* MSRV is 1.60 for --no-default-features --features log and/or (ssl-native-tls or ssl)
+  - For successful build of feature ssl-rustls Rust version >=1.61 is required
+  - For successful build of feature socket2 (default) Rust version >=1.63 is required
 
-* Bumped the minimum compiler version tested by CI to 1.61 - this is necessary due to an increasing number of dependencies
-  introducing Cargo manifest features only supported on newer versions of Rust.
+* CI is testing features with different minimum Rust versions
 
 * Fix issue #252: Content-Length header has been used for memory allocation
 
