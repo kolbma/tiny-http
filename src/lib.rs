@@ -557,7 +557,8 @@ impl Server {
                                 Ok(s) => s,
                                 Err(err) => {
                                     log::debug!("ssl handshake failed: {}", err);
-                                    inside_messages.push(std::io::Error::other(err).into());
+                                    inside_messages
+                                        .push(IoError::new(std::io::ErrorKind::Other, err).into());
                                     continue;
                                 }
                             };
