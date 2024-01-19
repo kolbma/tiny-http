@@ -88,16 +88,17 @@
 //! let _ = request.respond(response);
 //! ```
 
-use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-use std::time::Duration;
 use std::{
+    error::Error,
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult},
-    net::{Shutdown, TcpStream, ToSocketAddrs},
-};
-use std::{
-    sync::{mpsc, Arc},
+    net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs},
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc, Arc,
+    },
     thread,
+    time::Duration,
 };
 
 use client::ClientConnection;
@@ -115,7 +116,7 @@ pub use response::{Response, ResponseBox};
 ))]
 pub use ssl::SslConfig;
 pub use test::TestRequest;
-use util::{MessagesQueue, RefinedTcpStream, TaskPool};
+use util::{ArcRegistration, MessagesQueue, RefinedTcpStream, TaskPool};
 
 #[cfg(test)]
 use fdlimit as _;
@@ -136,6 +137,12 @@ pub mod ssl;
 mod test;
 mod util;
 
+/// Default connection limit for concurrent connections
+const CONNECTION_LIMIT_DEFAULT: usize = 200;
+
+/// Duration of sleep to check for concurrent connections
+const CONNECTION_LIMIT_SLEEP_DURATION: Duration = Duration::from_millis(25);
+
 /// The main class of this library.
 ///
 /// Destroying this object will immediately close the listening socket and the reading
@@ -147,11 +154,14 @@ pub struct Server {
     // when set to true, all the subtasks will close within a few hundreds ms
     close: Arc<AtomicBool>,
 
+    // result of TcpListener::local_addr()
+    listening_addr: ListenAddr,
+
     // queue for messages received by child threads
     messages: Arc<MessagesQueue<Message>>,
 
-    // result of TcpListener::local_addr()
-    listening_addr: ListenAddr,
+    // number of currently open connections
+    num_connections: Arc<AtomicUsize>,
 }
 
 enum Message {
@@ -177,7 +187,10 @@ trait SyncSendT: Sync + Send {}
 #[doc(hidden)]
 impl SyncSendT for Server {}
 
-/// Iterator over received [Request] from [Server]
+/// Iterator over received `[Request]` from `[Server]`
+///
+/// Returns `None` on any `Error`
+///
 #[allow(missing_debug_implementations)]
 pub struct IncomingRequests<'a> {
     server: &'a Server,
@@ -191,11 +204,21 @@ impl Iterator for IncomingRequests<'_> {
     }
 }
 
-/// Represents the parameters required to create a server.
+/// Represents the config parameters required to create a server.
+///
+/// # Example
+///
+/// ```
+/// let cfg = ServerConfig { connection_limit: 50, ..ServerConfig::default() };
+/// ```
+///
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     /// The addresses to try to listen to.
     pub addr: ConfigListenAddr,
+
+    /// Connections are limited to `connection_limit`
+    pub connection_limit: usize,
 
     /// Socket configuration with _socket2_ feature  
     /// See [SocketConfig]
@@ -211,6 +234,23 @@ pub struct ServerConfig {
     pub ssl: Option<SslConfig>,
 }
 
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            addr: ConfigListenAddr::IP(vec![SocketAddr::from_str("127.0.0.1:0").unwrap()]),
+            connection_limit: CONNECTION_LIMIT_DEFAULT,
+            #[cfg(feature = "socket2")]
+            socket_config: SocketConfig::default(),
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
+            ssl: None,
+        }
+    }
+}
+
 impl Server {
     /// Builds a new server that listens on the specified address.
     ///
@@ -218,20 +258,23 @@ impl Server {
     ///
     /// `std::io::Error` when socket binding failed
     ///
-    pub fn new(config: &ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
+    pub fn new(
+        server_config: &ServerConfig,
+    ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
         #[cfg(feature = "socket2")]
-        let listener = config.addr.bind(&config.socket_config)?;
+        let listener = server_config.addr.bind(&server_config.socket_config)?;
         #[cfg(not(feature = "socket2"))]
-        let listener = config.addr.bind()?;
+        let listener = server_config.addr.bind()?;
 
         Self::from_listener(
             listener,
+            server_config,
             #[cfg(any(
                 feature = "ssl-openssl",
                 feature = "ssl-rustls",
                 feature = "ssl-native-tls"
             ))]
-            config.ssl.as_ref(),
+            server_config.ssl.as_ref(),
         )
     }
 
@@ -247,14 +290,7 @@ impl Server {
     {
         Server::new(&ServerConfig {
             addr: ConfigListenAddr::from_socket_addrs(addr)?,
-            #[cfg(feature = "socket2")]
-            socket_config: connection::SocketConfig::default(),
-            #[cfg(any(
-                feature = "ssl-openssl",
-                feature = "ssl-rustls",
-                feature = "ssl-native-tls"
-            ))]
-            ssl: None,
+            ..ServerConfig::default()
         })
     }
 
@@ -272,14 +308,7 @@ impl Server {
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
         Server::new(&ServerConfig {
             addr: ConfigListenAddr::unix_from_path(path),
-            #[cfg(feature = "socket2")]
-            socket_config: connection::SocketConfig::default(),
-            #[cfg(any(
-                feature = "ssl-openssl",
-                feature = "ssl-rustls",
-                feature = "ssl-native-tls"
-            ))]
-            ssl: None,
+            ..ServerConfig::default()
         })
     }
 
@@ -298,16 +327,15 @@ impl Server {
     #[inline]
     pub fn https<A>(
         addr: A,
-        config: SslConfig,
+        ssl_config: SslConfig,
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>>
     where
         A: ToSocketAddrs,
     {
         Server::new(&ServerConfig {
             addr: ConfigListenAddr::from_socket_addrs(addr)?,
-            #[cfg(feature = "socket2")]
-            socket_config: connection::SocketConfig::default(),
-            ssl: Some(config),
+            ssl: Some(ssl_config),
+            ..ServerConfig::default()
         })
     }
 
@@ -322,6 +350,7 @@ impl Server {
     ///
     pub fn from_listener<L: Into<Listener>>(
         listener: L,
+        server_config: &ServerConfig,
         #[cfg(any(
             feature = "ssl-openssl",
             feature = "ssl-rustls",
@@ -349,6 +378,9 @@ impl Server {
         // a task pool is used to dispatch the connections into threads
         let task_pool = util::TaskPool::new();
 
+        // counting number of concurrent client connections
+        let num_connections = Arc::new(AtomicUsize::default());
+
         #[cfg(any(
             feature = "ssl-openssl",
             feature = "ssl-rustls",
@@ -358,7 +390,9 @@ impl Server {
             if let Some(ssl_config) = ssl_config {
                 Self::start_https_listener_thread(
                     server,
+                    server_config,
                     task_pool,
+                    &num_connections,
                     ssl_config,
                     inside_messages,
                     inside_close_trigger,
@@ -366,7 +400,9 @@ impl Server {
             } else {
                 Self::start_http_listener_thread(
                     server,
+                    server_config,
                     task_pool,
+                    &num_connections,
                     inside_messages,
                     inside_close_trigger,
                 );
@@ -378,19 +414,28 @@ impl Server {
             feature = "ssl-rustls",
             feature = "ssl-native-tls"
         )))]
-        Self::start_http_listener_thread(server, task_pool, inside_messages, inside_close_trigger);
+        Self::start_http_listener_thread(
+            server,
+            server_config,
+            task_pool,
+            &num_connections,
+            inside_messages,
+            inside_close_trigger,
+        );
 
         // result
         Ok(Server {
-            messages,
             close: close_trigger,
             listening_addr: local_addr,
+            messages,
+            num_connections,
         })
     }
 
     /// Returns an iterator for all the incoming requests.
     ///
-    /// The iterator will return `None` if the server socket is shutdown.
+    /// The iterator will return `None` if the server socket is shutdown
+    /// or `OsError` occurred.
     #[must_use]
     #[inline]
     pub fn incoming_requests(&self) -> IncomingRequests<'_> {
@@ -400,8 +445,7 @@ impl Server {
     /// Returns the number of clients currently connected to the server.
     #[must_use]
     pub fn num_connections(&self) -> usize {
-        unimplemented!()
-        //self.requests_receiver.lock().len()
+        self.num_connections.load(Ordering::Acquire)
     }
 
     /// Blocks until an HTTP request has been submitted and returns it.
@@ -494,22 +538,37 @@ impl Server {
     #[inline]
     fn start_http_listener_thread(
         server: Listener,
+        server_config: &ServerConfig,
         task_pool: TaskPool,
+        num_connections: &Arc<AtomicUsize>,
         inside_messages: Arc<MessagesQueue<Message>>,
         inside_close_trigger: Arc<AtomicBool>,
     ) {
+        let connection_limit = server_config.connection_limit;
+        let num_connections = Arc::clone(num_connections);
+
         let _ = thread::spawn(move || {
             log::debug!("running accept thread");
-            while !inside_close_trigger.load(Relaxed) {
+            while !inside_close_trigger.load(Ordering::Relaxed) {
+                while num_connections.load(Ordering::Acquire) >= connection_limit {
+                    log::debug!("connection limit reached");
+                    thread::sleep(CONNECTION_LIMIT_SLEEP_DURATION);
+                }
+
                 match server.accept() {
                     Ok((sock, _)) => {
+                        let client_counter = ArcRegistration::new(Arc::clone(&num_connections));
+
                         let (read_closable, write_closable) = RefinedTcpStream::new(sock);
-                        let connection = ClientConnection::new(write_closable, read_closable);
+                        let connection =
+                            ClientConnection::new(write_closable, read_closable, client_counter);
                         Self::handle_client_connection(&task_pool, connection, &inside_messages);
                     }
                     Err(err) => {
                         log::debug!("error on connection accept: {err:?}");
+                        // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
+                        let _ = err;
                     }
                 };
             }
@@ -525,7 +584,9 @@ impl Server {
     #[inline]
     fn start_https_listener_thread(
         server: Listener,
+        server_config: &ServerConfig,
         task_pool: TaskPool,
+        num_connections: &Arc<AtomicUsize>,
         ssl_config: &SslConfig,
         inside_messages: Arc<MessagesQueue<Message>>,
         inside_close_trigger: Arc<AtomicBool>,
@@ -545,11 +606,21 @@ impl Server {
         let ssl_ctx: SslContext =
             SslContext::from_pem(&ssl_config.certificate, &ssl_config.private_key)?;
 
+        let connection_limit = server_config.connection_limit;
+        let num_connections = Arc::clone(num_connections);
+
         let _ = thread::spawn(move || {
             log::debug!("running accept thread");
-            while !inside_close_trigger.load(Relaxed) {
+            while !inside_close_trigger.load(Ordering::Relaxed) {
+                while num_connections.load(Ordering::Acquire) >= connection_limit {
+                    log::debug!("connection limit reached");
+                    thread::sleep(CONNECTION_LIMIT_SLEEP_DURATION);
+                }
+
                 match server.accept() {
                     Ok((sock, _)) => {
+                        let client_counter = ArcRegistration::new(Arc::clone(&num_connections));
+
                         let (read_closable, write_closable) = {
                             // trying to apply SSL over the connection
                             // if an error occurs, we just close the socket and resume listening
@@ -557,8 +628,9 @@ impl Server {
                                 Ok(s) => s,
                                 Err(err) => {
                                     log::debug!("ssl handshake failed: {}", err);
+                                    // TODO: how to handle these errors?!
                                     inside_messages
-                                        .push(IoError::new(std::io::ErrorKind::Other, err).into());
+                                        .push(IoError::new(IoErrorKind::Other, err).into());
                                     continue;
                                 }
                             };
@@ -566,11 +638,13 @@ impl Server {
                             RefinedTcpStream::new(sock)
                         };
 
-                        let connection = ClientConnection::new(write_closable, read_closable);
+                        let connection =
+                            ClientConnection::new(write_closable, read_closable, client_counter);
                         Self::handle_client_connection(&task_pool, connection, &inside_messages);
                     }
                     Err(err) => {
                         log::debug!("error on connection accept: {err:?}");
+                        // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                     }
                 };
@@ -585,7 +659,7 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         // close trigger
-        self.close.store(true, Relaxed);
+        self.close.store(true, Ordering::Relaxed);
         // Connect briefly to ourselves to unblock the accept thread
         let maybe_stream = match &self.listening_addr {
             ListenAddr::IP(addr) => TcpStream::connect(addr).map(Connection::from),

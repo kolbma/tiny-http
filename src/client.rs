@@ -7,6 +7,7 @@ use std::net::SocketAddr;
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 
 use crate::common::{HTTPVersion, Method};
+use crate::util::ArcRegistration;
 use crate::util::RefinedTcpStream;
 use crate::util::{SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder};
 use crate::Header;
@@ -15,6 +16,8 @@ use crate::Request;
 /// A `ClientConnection` is an object that will store a socket to a client
 /// and return Request objects.
 pub(crate) struct ClientConnection {
+    _client_counter: ArcRegistration,
+
     // address of the client
     remote_addr: IoResult<Option<SocketAddr>>,
 
@@ -51,7 +54,8 @@ impl ClientConnection {
     pub(crate) fn new(
         write_socket: RefinedTcpStream,
         mut read_socket: RefinedTcpStream,
-    ) -> ClientConnection {
+        client_counter: ArcRegistration,
+    ) -> Self {
         let remote_addr = read_socket.peer_addr();
         let secure = read_socket.secure();
 
@@ -59,6 +63,7 @@ impl ClientConnection {
         let first_header = source.next().unwrap();
 
         ClientConnection {
+            _client_counter: client_counter,
             source,
             sink: SequentialWriterBuilder::new(BufWriter::with_capacity(1024, write_socket)),
             remote_addr,

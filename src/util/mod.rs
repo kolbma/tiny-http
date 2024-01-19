@@ -3,6 +3,7 @@ pub(crate) use self::equal_reader::EqualReader;
 pub(crate) use self::fused_reader::FusedReader;
 pub(crate) use self::messages_queue::MessagesQueue;
 pub(crate) use self::refined_tcp_stream::RefinedTcpStream;
+pub(crate) use self::registration::{ArcRegistration, Registration};
 pub(crate) use self::sequential::{
     SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder,
 };
@@ -15,6 +16,7 @@ mod equal_reader;
 mod fused_reader;
 mod messages_queue;
 pub(crate) mod refined_tcp_stream;
+mod registration;
 mod sequential;
 mod task_pool;
 

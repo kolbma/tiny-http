@@ -15,12 +15,7 @@ fn main() -> Result<(), std::io::Error> {
             write_timeout: Duration::from_millis(5000),
             ..tiny_http::SocketConfig::default()
         },
-        #[cfg(any(
-            feature = "ssl-openssl",
-            feature = "ssl-rustls",
-            feature = "ssl-native-tls"
-        ))]
-        ssl: None,
+        ..ServerConfig::default()
     })
     .unwrap();
 
