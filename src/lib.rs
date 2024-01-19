@@ -209,6 +209,7 @@ impl Iterator for IncomingRequests<'_> {
 /// # Example
 ///
 /// ```
+/// # use tiny_http::ServerConfig;
 /// let cfg = ServerConfig { connection_limit: 50, ..ServerConfig::default() };
 /// ```
 ///
