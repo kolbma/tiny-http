@@ -472,12 +472,8 @@ where
             };
 
         // checking whether to ignore the body of the response
-        let do_not_send_body = do_not_send_body
-            || match self.status_code.0 {
-                // status code 1xx, 204 and 304 MUST not include a body
-                100..=199 | 204 | 304 => true,
-                _ => false,
-            };
+        let do_not_send_body =
+            do_not_send_body || matches!(self.status_code.0, 100..=199 | 204 | 304); // status code 1xx, 204 and 304 MUST not include a body
 
         // preparing headers for transfer
         match transfer_encoding {
