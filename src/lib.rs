@@ -102,7 +102,7 @@ use std::{
 };
 
 use client::ClientConnection;
-pub use common::{HTTPVersion, Header, HeaderField, Method, StatusCode};
+pub use common::{HTTPVersion, Header, HeaderError, HeaderField, Method, StatusCode};
 use connection::Connection;
 #[cfg(feature = "socket2")]
 pub use connection::SocketConfig;
