@@ -125,6 +125,11 @@ pub(crate) struct RefinedTcpStream {
 }
 
 impl RefinedTcpStream {
+    /// Create `[RefinedTcpStream]`
+    ///
+    /// # Returns
+    /// - tuple (closable Read, closable Write)
+    ///
     pub(crate) fn new<S>(stream: S) -> (RefinedTcpStream, RefinedTcpStream)
     where
         S: Into<Stream>,
