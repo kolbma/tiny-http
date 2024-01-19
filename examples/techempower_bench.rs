@@ -31,17 +31,17 @@ fn main() {
             for req in server.incoming_requests() {
                 match req.url() {
                     "/json" => {
-                        let json = serde_json::to_vec(&HelloWorldMsg {
+                        let json: &[u8] = &serde_json::to_vec(&HelloWorldMsg {
                             message: "Hello, World!",
                         })
                         .expect("json ser fail");
-                        let _ = req
-                            .respond(response_json.clone().with_data(&json[..], Some(json.len())));
+                        let _ =
+                            req.respond(response_json.clone().with_data(json, Some(json.len())));
                     }
                     "/plaintext" => {
-                        let text = b"Hello, World!";
-                        let _ = req
-                            .respond(response_text.clone().with_data(&text[..], Some(text.len())));
+                        let text: &[u8] = b"Hello, World!";
+                        let _ =
+                            req.respond(response_text.clone().with_data(text, Some(text.len())));
                     }
                     _ => {
                         let _ = req.respond(tiny_http::Response::empty(404));
