@@ -1,19 +1,4 @@
-#![warn(clippy::pedantic)]
-#![warn(
-    // missing_debug_implementations,
-    // missing_docs,
-    non_ascii_idents,
-    trivial_casts,
-    trivial_numeric_casts,
-    unreachable_pub,
-    unsafe_code,
-    // unused_crate_dependencies,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications,
-    unused_results
-)]
-#![forbid(unsafe_code)]
+#![allow(missing_docs, unused_crate_dependencies)]
 
 use std::sync::Arc;
 use std::thread;
@@ -31,11 +16,11 @@ fn main() {
 
     let mut handles = Vec::new();
     let mut response_json = tiny_http::Response::empty(200);
-    response_json.add_header("Content-Type: application/json".parse::<Header>().unwrap());
-    response_json.add_header("Server: t".parse::<Header>().unwrap());
+    let _ = response_json.add_header("Content-Type: application/json".parse::<Header>().unwrap());
+    let _ = response_json.add_header("Server: t".parse::<Header>().unwrap());
 
     let mut response_text = response_json.clone();
-    response_text.add_header("Content-Type: plain/text".parse::<Header>().unwrap());
+    let _ = response_text.add_header("Content-Type: plain/text".parse::<Header>().unwrap());
 
     for _ in 0..num_cpus::get() {
         let server = server.clone();
