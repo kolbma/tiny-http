@@ -4,6 +4,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use super::Registration;
+
 /// Manages a collection of threads.
 ///
 /// A new thread is created every time all the existing threads are full.
@@ -13,9 +15,11 @@ pub(crate) struct TaskPool {
     // thread_handles:
 }
 
+pub(crate) type TaskFn = Box<dyn FnMut() + Send>;
+
 struct Sharing {
     // list of the queued tasks to be done by worker threads
-    queue: Mutex<VecDeque<Box<dyn FnMut() + Send>>>,
+    queue: Mutex<VecDeque<TaskFn>>,
 
     // condvar that will be notified whenever a task is added to `tasks`
     condvar: Condvar,
@@ -39,23 +43,6 @@ const MIN_IDLE_THREADS: usize = 1;
 /// Time threads stay alive without working task
 const IDLE_TIME: Duration = Duration::from_millis(5000);
 
-struct Registration<'a> {
-    nb: &'a AtomicUsize,
-}
-
-impl<'a> Registration<'a> {
-    fn new(nb: &'a AtomicUsize) -> Registration<'a> {
-        let _ = nb.fetch_add(1, Ordering::Release);
-        Registration { nb }
-    }
-}
-
-impl Drop for Registration<'_> {
-    fn drop(&mut self) {
-        let _ = self.nb.fetch_sub(1, Ordering::Release);
-    }
-}
-
 impl TaskPool {
     pub(crate) fn new() -> TaskPool {
         let pool = TaskPool {
@@ -77,7 +64,7 @@ impl TaskPool {
 
     /// Executes a function in a thread.
     /// If no thread is available, spawns a new one.
-    pub(crate) fn spawn_task(&self, code: Box<dyn FnMut() + Send>) {
+    pub(crate) fn spawn_task(&self, code: TaskFn) {
         let mut queue = self.sharing.queue.lock().unwrap();
 
         if self.sharing.threads_idle.load(Ordering::Acquire) == 0
@@ -91,7 +78,7 @@ impl TaskPool {
     }
 
     #[inline]
-    fn add_thread(&self, initial_fn: Option<Box<dyn FnMut() + Send>>) {
+    fn add_thread(&self, initial_fn: Option<TaskFn>) {
         let sharing = Arc::clone(&self.sharing);
 
         let _ = thread::spawn(move || {
