@@ -190,13 +190,18 @@ fn connection_timeout() -> Result<(), std::io::Error> {
     let now = Instant::now();
 
     let (server, mut client) = {
-        let server = tiny_http::Server::new(ServerConfig {
+        let server = tiny_http::Server::new(&ServerConfig {
             addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
             socket_config: tiny_http::SocketConfig {
                 read_timeout: Duration::from_millis(100),
                 write_timeout: Duration::from_millis(100),
                 ..tiny_http::SocketConfig::default()
             },
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             ssl: None,
         })
         .unwrap();
@@ -250,13 +255,18 @@ fn connection_timeout_wait_check() -> Result<(), std::io::Error> {
     let now = Instant::now();
 
     let (server, mut client) = {
-        let server = tiny_http::Server::new(ServerConfig {
+        let server = tiny_http::Server::new(&ServerConfig {
             addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
             socket_config: tiny_http::SocketConfig {
                 read_timeout: Duration::from_millis(250),
                 write_timeout: Duration::from_millis(250),
                 ..tiny_http::SocketConfig::default()
             },
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             ssl: None,
         })
         .unwrap();

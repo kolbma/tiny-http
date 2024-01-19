@@ -8,13 +8,18 @@ use tiny_http::{Response, Server, ServerConfig};
 
 #[cfg(feature = "socket2")]
 fn main() -> Result<(), std::io::Error> {
-    let server = Server::new(ServerConfig {
+    let server = Server::new(&ServerConfig {
         addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:8000")?,
         socket_config: tiny_http::SocketConfig {
             read_timeout: Duration::from_millis(5000),
             write_timeout: Duration::from_millis(5000),
             ..tiny_http::SocketConfig::default()
         },
+        #[cfg(any(
+            feature = "ssl-openssl",
+            feature = "ssl-rustls",
+            feature = "ssl-native-tls"
+        ))]
         ssl: None,
     })
     .unwrap();

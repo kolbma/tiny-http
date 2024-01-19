@@ -19,10 +19,10 @@ fn main() {
 
     let server = Server::https(
         "0.0.0.0:8000",
-        tiny_http::SslConfig {
-            certificate: include_bytes!("ssl-cert.pem").to_vec(),
-            private_key: include_bytes!("ssl-key.pem").to_vec(),
-        },
+        tiny_http::SslConfig::new(
+            include_bytes!("ssl-cert.pem").to_vec(),
+            include_bytes!("ssl-key.pem").to_vec(),
+        ),
     )
     .unwrap();
 
