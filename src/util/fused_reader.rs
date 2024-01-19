@@ -4,17 +4,17 @@ use std::io::{IoSliceMut, Read, Result as IoResult};
 /// When the underlying reader reaches EOF, it is dropped
 /// and the fused reader becomes an empty stub.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FusedReader<R: Read> {
+pub(crate) struct FusedReader<R: Read> {
     inner: Option<R>,
 }
 
 impl<R: Read> FusedReader<R> {
-    pub fn new(inner: R) -> Self {
+    pub(crate) fn new(inner: R) -> Self {
         Self { inner: Some(inner) }
     }
 
     #[allow(dead_code)]
-    pub fn into_inner(self) -> Option<R> {
+    pub(crate) fn into_inner(self) -> Option<R> {
         self.inner
     }
 }

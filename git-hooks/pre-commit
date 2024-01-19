@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+
+script=$(basename "$0")
+
+fail() {
+	echo "$script: pre-commit hook failed: $1" >&2
+	exit 1
+}
+
+MSRV="1.60"
+
+cargo fmt --check || fail "cargo fmt --check"
+
+cargo +$MSRV clippy --no-deps --no-default-features -- -Dwarnings && \
+cargo +$MSRV clippy --no-deps --no-default-features --features log -- -Dwarnings && \
+cargo +$MSRV clippy --no-deps --no-default-features --features log,ssl -- -Dwarnings && \
+cargo +$MSRV clippy --no-deps --no-default-features --features log,ssl-native-tls -- -Dwarnings && \
+cargo +$MSRV clippy --no-deps --no-default-features --features ssl -- -Dwarnings && \
+cargo +$MSRV clippy --no-deps --no-default-features --features ssl-native-tls -- -Dwarnings || \
+fail "cargo +$MSRV clippy"
+
+cargo clippy --no-deps --no-default-features -- -Dwarnings && \
+cargo clippy --no-deps --no-default-features --features ssl -- -Dwarnings && \
+cargo clippy --no-deps --no-default-features --features ssl-native-tls -- -Dwarnings && \
+cargo clippy --no-deps --no-default-features --features ssl-rustls -- -Dwarnings && \
+cargo clippy --no-deps --no-default-features --features log -- -Dwarnings && \
+cargo clippy --no-deps --no-default-features --features socket2 -- -Dwarnings && \
+cargo clippy --no-deps --features ssl -- -Dwarnings && \
+cargo clippy --no-deps --features ssl-native-tls -- -Dwarnings && \
+cargo clippy --no-deps --features ssl-rustls -- -Dwarnings || \
+fail "cargo clippy"

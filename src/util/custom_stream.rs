@@ -1,7 +1,7 @@
 use std::io::Result as IoResult;
 use std::io::{Read, Write};
 
-pub struct CustomStream<R, W> {
+pub(crate) struct CustomStream<R, W> {
     reader: R,
     writer: W,
 }
@@ -11,7 +11,7 @@ where
     R: Read,
     W: Write,
 {
-    pub fn new(reader: R, writer: W) -> CustomStream<R, W> {
+    pub(crate) fn new(reader: R, writer: W) -> CustomStream<R, W> {
         CustomStream { reader, writer }
     }
 }

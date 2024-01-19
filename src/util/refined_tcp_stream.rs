@@ -3,12 +3,20 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr};
 
 use crate::connection::Connection;
-#[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+#[cfg(any(
+    feature = "ssl-openssl",
+    feature = "ssl-rustls",
+    feature = "ssl-native-tls"
+))]
 use crate::ssl::SslStream;
 
 pub(crate) enum Stream {
     Http(Connection),
-    #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+    #[cfg(any(
+        feature = "ssl-openssl",
+        feature = "ssl-rustls",
+        feature = "ssl-native-tls"
+    ))]
     Https(SslStream),
 }
 
@@ -16,7 +24,11 @@ impl Clone for Stream {
     fn clone(&self) -> Self {
         match self {
             Stream::Http(tcp_stream) => Stream::Http(tcp_stream.try_clone().unwrap()),
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(ssl_stream) => Stream::Https(ssl_stream.clone()),
         }
     }
@@ -32,7 +44,11 @@ impl Stream {
     fn secure(&self) -> bool {
         match self {
             Stream::Http(_) => false,
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(_) => true,
         }
     }
@@ -40,7 +56,11 @@ impl Stream {
     fn peer_addr(&mut self) -> IoResult<Option<SocketAddr>> {
         match self {
             Stream::Http(tcp_stream) => tcp_stream.peer_addr(),
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(ssl_stream) => ssl_stream.peer_addr(),
         }
     }
@@ -48,7 +68,11 @@ impl Stream {
     fn shutdown(&mut self, how: Shutdown) -> IoResult<()> {
         match self {
             Stream::Http(tcp_stream) => tcp_stream.shutdown(how),
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(ssl_stream) => ssl_stream.shutdown(how),
         }
     }
@@ -58,7 +82,11 @@ impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         match self {
             Stream::Http(tcp_stream) => tcp_stream.read(buf),
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(ssl_stream) => ssl_stream.read(buf),
         }
     }
@@ -68,7 +96,11 @@ impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         match self {
             Stream::Http(tcp_stream) => tcp_stream.write(buf),
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(ssl_stream) => ssl_stream.write(buf),
         }
     }
@@ -76,19 +108,28 @@ impl Write for Stream {
     fn flush(&mut self) -> IoResult<()> {
         match self {
             Stream::Http(tcp_stream) => tcp_stream.flush(),
-            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             Stream::Https(ssl_stream) => ssl_stream.flush(),
         }
     }
 }
 
-pub struct RefinedTcpStream {
+pub(crate) struct RefinedTcpStream {
     stream: Stream,
     close_read: bool,
     close_write: bool,
 }
 
 impl RefinedTcpStream {
+    /// Create `[RefinedTcpStream]`
+    ///
+    /// # Returns
+    /// - tuple (closable Read, closable Write)
+    ///
     pub(crate) fn new<S>(stream: S) -> (RefinedTcpStream, RefinedTcpStream)
     where
         S: Into<Stream>,
@@ -126,11 +167,11 @@ impl RefinedTcpStream {
 impl Drop for RefinedTcpStream {
     fn drop(&mut self) {
         if self.close_read {
-            self.stream.shutdown(Shutdown::Read).ok();
+            let _ = self.stream.shutdown(Shutdown::Read);
         }
 
         if self.close_write {
-            self.stream.shutdown(Shutdown::Write).ok();
+            let _ = self.stream.shutdown(Shutdown::Write);
         }
     }
 }

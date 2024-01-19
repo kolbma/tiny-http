@@ -27,7 +27,7 @@
 //!     // blocks until the next request is received
 //!     let request = match server.recv() {
 //!         Ok(rq) => rq,
-//!         Err(e) => { println!("error: {}", e); break }
+//!         Err(err) => { eprintln!("error: {err}"); break }
 //!     };
 //!
 //!     // do something with the request
@@ -87,41 +87,52 @@
 //! # let response = tiny_http::Response::from_file(File::open(&Path::new("image.png")).unwrap());
 //! let _ = request.respond(response);
 //! ```
-#![forbid(unsafe_code)]
-#![deny(rust_2018_idioms)]
-#![allow(clippy::match_like_matches_macro)]
-
-#[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
-use zeroize::Zeroizing;
 
 use std::error::Error;
-use std::io::Error as IoError;
-use std::io::ErrorKind as IoErrorKind;
-use std::io::Result as IoResult;
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::time::Duration;
+use std::{
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult},
+    net::{Shutdown, TcpStream, ToSocketAddrs},
+};
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+};
 
 use client::ClientConnection;
-use connection::Connection;
-use util::MessagesQueue;
-
 pub use common::{HTTPVersion, Header, HeaderField, Method, StatusCode};
+use connection::Connection;
+#[cfg(feature = "socket2")]
+pub use connection::SocketConfig;
 pub use connection::{ConfigListenAddr, ListenAddr, Listener};
 pub use request::{ReadWrite, Request};
 pub use response::{Response, ResponseBox};
+#[cfg(any(
+    feature = "ssl-openssl",
+    feature = "ssl-rustls",
+    feature = "ssl-native-tls"
+))]
+pub use ssl::SslConfig;
 pub use test::TestRequest;
+use util::{MessagesQueue, RefinedTcpStream, TaskPool};
+
+#[cfg(test)]
+use fdlimit as _;
+#[cfg(test)]
+use rlimit as _;
+#[cfg(test)]
+use rustc_serialize as _;
+#[cfg(test)]
+use sha1_smol as _;
 
 mod client;
 mod common;
 mod connection;
+mod log;
 mod request;
 mod response;
-mod ssl;
+pub mod ssl;
 mod test;
 mod util;
 
@@ -130,6 +141,7 @@ mod util;
 /// Destroying this object will immediately close the listening socket and the reading
 ///  part of all the client's connections. Requests that have already been returned by
 ///  the `recv()` function will not close and the responses will be transferred to the client.
+#[allow(missing_debug_implementations)]
 pub struct Server {
     // should be false as long as the server exists
     // when set to true, all the subtasks will close within a few hundreds ms
@@ -161,12 +173,22 @@ impl From<Request> for Message {
 
 // this trait is to make sure that Server implements Share and Send
 #[doc(hidden)]
-trait MustBeShareDummy: Sync + Send {}
+trait SyncSendT: Sync + Send {}
 #[doc(hidden)]
-impl MustBeShareDummy for Server {}
+impl SyncSendT for Server {}
 
+/// Iterator over received [Request] from [Server]
+#[allow(missing_debug_implementations)]
 pub struct IncomingRequests<'a> {
     server: &'a Server,
+}
+
+impl Iterator for IncomingRequests<'_> {
+    type Item = Request;
+
+    fn next(&mut self) -> Option<Request> {
+        self.server.recv().ok()
+    }
 }
 
 /// Represents the parameters required to create a server.
@@ -175,34 +197,104 @@ pub struct ServerConfig {
     /// The addresses to try to listen to.
     pub addr: ConfigListenAddr,
 
+    /// Socket configuration with _socket2_ feature  
+    /// See [SocketConfig]
+    #[cfg(feature = "socket2")]
+    pub socket_config: SocketConfig,
+
     /// If `Some`, then the server will use SSL to encode the communications.
+    #[cfg(any(
+        feature = "ssl-openssl",
+        feature = "ssl-rustls",
+        feature = "ssl-native-tls"
+    ))]
     pub ssl: Option<SslConfig>,
 }
 
-/// Configuration of the server for SSL.
-#[derive(Debug, Clone)]
-pub struct SslConfig {
-    /// Contains the public certificate to send to clients.
-    pub certificate: Vec<u8>,
-    /// Contains the ultra-secret private key used to decode communications.
-    pub private_key: Vec<u8>,
-}
-
 impl Server {
+    /// Builds a new server that listens on the specified address.
+    ///
+    /// # Errors
+    ///
+    /// `std::io::Error` when socket binding failed
+    ///
+    pub fn new(config: &ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
+        #[cfg(feature = "socket2")]
+        let listener = config.addr.bind(&config.socket_config)?;
+        #[cfg(not(feature = "socket2"))]
+        let listener = config.addr.bind()?;
+
+        Self::from_listener(
+            listener,
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
+            config.ssl.as_ref(),
+        )
+    }
+
     /// Shortcut for a simple server on a specific address.
+    ///
+    /// # Errors
+    ///
+    /// `std::io::Error` when `addr` is no socket address
     #[inline]
     pub fn http<A>(addr: A) -> Result<Server, Box<dyn Error + Send + Sync + 'static>>
     where
         A: ToSocketAddrs,
     {
-        Server::new(ServerConfig {
+        Server::new(&ServerConfig {
             addr: ConfigListenAddr::from_socket_addrs(addr)?,
+            #[cfg(feature = "socket2")]
+            socket_config: connection::SocketConfig::default(),
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
+            ssl: None,
+        })
+    }
+
+    /// Shortcut for a UNIX socket server at a specific path
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when `addr` is no socket address
+    /// - `std::io::Error` when socket binding failed
+    ///
+    #[cfg(unix)]
+    #[inline]
+    pub fn http_unix(
+        path: &std::path::Path,
+    ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
+        Server::new(&ServerConfig {
+            addr: ConfigListenAddr::unix_from_path(path),
+            #[cfg(feature = "socket2")]
+            socket_config: connection::SocketConfig::default(),
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
             ssl: None,
         })
     }
 
     /// Shortcut for an HTTPS server on a specific address.
-    #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when `addr` is no socket address
+    /// - `std::io::Error` when socket binding failed
+    ///
+    #[cfg(any(
+        feature = "ssl-openssl",
+        feature = "ssl-rustls",
+        feature = "ssl-native-tls"
+    ))]
     #[inline]
     pub fn https<A>(
         addr: A,
@@ -211,142 +303,82 @@ impl Server {
     where
         A: ToSocketAddrs,
     {
-        Server::new(ServerConfig {
+        Server::new(&ServerConfig {
             addr: ConfigListenAddr::from_socket_addrs(addr)?,
+            #[cfg(feature = "socket2")]
+            socket_config: connection::SocketConfig::default(),
             ssl: Some(config),
         })
     }
 
-    #[cfg(unix)]
-    #[inline]
-    /// Shortcut for a UNIX socket server at a specific path
-    pub fn http_unix(
-        path: &std::path::Path,
-    ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
-        Server::new(ServerConfig {
-            addr: ConfigListenAddr::unix_from_path(path),
-            ssl: None,
-        })
-    }
-
-    /// Builds a new server that listens on the specified address.
-    pub fn new(config: ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
-        let listener = config.addr.bind()?;
-        Self::from_listener(listener, config.ssl)
-    }
-
     /// Builds a new server using the specified TCP listener.
     ///
-    /// This is useful if you've constructed TcpListener using some less usual method
+    /// This is useful if you've constructed `TcpListener` using some less usual method
     /// such as from systemd. For other cases, you probably want the `new()` function.
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` when socket problem
+    ///
     pub fn from_listener<L: Into<Listener>>(
         listener: L,
-        ssl_config: Option<SslConfig>,
+        #[cfg(any(
+            feature = "ssl-openssl",
+            feature = "ssl-rustls",
+            feature = "ssl-native-tls"
+        ))]
+        ssl_config: Option<&SslConfig>,
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
-        let listener = listener.into();
-        // building the "close" variable
-        let close_trigger = Arc::new(AtomicBool::new(false));
-
         // building the TcpListener
+        let listener = listener.into();
         let (server, local_addr) = {
             let local_addr = listener.local_addr()?;
-            log::debug!("Server listening on {}", local_addr);
+            log::debug!("server listening on {}", local_addr);
             (listener, local_addr)
-        };
-
-        // building the SSL capabilities
-        #[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls"))]
-        compile_error!(
-            "Features 'ssl-openssl' and 'ssl-rustls' must not be enabled at the same time"
-        );
-        #[cfg(not(any(feature = "ssl-openssl", feature = "ssl-rustls")))]
-        type SslContext = ();
-        #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
-        type SslContext = crate::ssl::SslContextImpl;
-        let ssl: Option<SslContext> = {
-            match ssl_config {
-                #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
-                Some(config) => Some(SslContext::from_pem(
-                    config.certificate,
-                    Zeroizing::new(config.private_key),
-                )?),
-                #[cfg(not(any(feature = "ssl-openssl", feature = "ssl-rustls")))]
-                Some(_) => return Err(
-                    "Building a server with SSL requires enabling the `ssl` feature in tiny-http"
-                        .into(),
-                ),
-                None => None,
-            }
         };
 
         // creating a task where server.accept() is continuously called
         // and ClientConnection objects are pushed in the messages queue
         let messages = MessagesQueue::with_capacity(8);
+        let inside_messages = Arc::clone(&messages);
 
-        let inside_close_trigger = close_trigger.clone();
-        let inside_messages = messages.clone();
-        thread::spawn(move || {
-            // a tasks pool is used to dispatch the connections into threads
-            let tasks_pool = util::TaskPool::new();
+        // building the "close" variable
+        let close_trigger = Arc::new(AtomicBool::new(false));
+        let inside_close_trigger = Arc::clone(&close_trigger);
 
-            log::debug!("Running accept thread");
-            while !inside_close_trigger.load(Relaxed) {
-                let new_client = match server.accept() {
-                    Ok((sock, _)) => {
-                        use util::RefinedTcpStream;
-                        let (read_closable, write_closable) = match ssl {
-                            None => RefinedTcpStream::new(sock),
-                            #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
-                            Some(ref ssl) => {
-                                // trying to apply SSL over the connection
-                                // if an error occurs, we just close the socket and resume listening
-                                let sock = match ssl.accept(sock) {
-                                    Ok(s) => s,
-                                    Err(_) => continue,
-                                };
+        // a task pool is used to dispatch the connections into threads
+        let task_pool = util::TaskPool::new();
 
-                                RefinedTcpStream::new(sock)
-                            }
-                            #[cfg(not(any(feature = "ssl-openssl", feature = "ssl-rustls")))]
-                            Some(ref _ssl) => unreachable!(),
-                        };
-
-                        Ok(ClientConnection::new(write_closable, read_closable))
-                    }
-                    Err(e) => Err(e),
-                };
-
-                match new_client {
-                    Ok(client) => {
-                        let messages = inside_messages.clone();
-                        let mut client = Some(client);
-                        tasks_pool.spawn(Box::new(move || {
-                            if let Some(client) = client.take() {
-                                // Synchronization is needed for HTTPS requests to avoid a deadlock
-                                if client.secure() {
-                                    let (sender, receiver) = mpsc::channel();
-                                    for rq in client {
-                                        messages.push(rq.with_notify_sender(sender.clone()).into());
-                                        receiver.recv().unwrap();
-                                    }
-                                } else {
-                                    for rq in client {
-                                        messages.push(rq.into());
-                                    }
-                                }
-                            }
-                        }));
-                    }
-
-                    Err(e) => {
-                        log::error!("Error accepting new client: {}", e);
-                        inside_messages.push(e.into());
-                        break;
-                    }
-                }
+        #[cfg(any(
+            feature = "ssl-openssl",
+            feature = "ssl-rustls",
+            feature = "ssl-native-tls"
+        ))]
+        {
+            if let Some(ssl_config) = ssl_config {
+                Self::start_https_listener_thread(
+                    server,
+                    task_pool,
+                    ssl_config,
+                    inside_messages,
+                    inside_close_trigger,
+                )?;
+            } else {
+                Self::start_http_listener_thread(
+                    server,
+                    task_pool,
+                    inside_messages,
+                    inside_close_trigger,
+                );
             }
-            log::debug!("Terminating accept thread");
-        });
+        }
+
+        #[cfg(not(any(
+            feature = "ssl-openssl",
+            feature = "ssl-rustls",
+            feature = "ssl-native-tls"
+        )))]
+        Self::start_http_listener_thread(server, task_pool, inside_messages, inside_close_trigger);
 
         // result
         Ok(Server {
@@ -359,24 +391,25 @@ impl Server {
     /// Returns an iterator for all the incoming requests.
     ///
     /// The iterator will return `None` if the server socket is shutdown.
+    #[must_use]
     #[inline]
     pub fn incoming_requests(&self) -> IncomingRequests<'_> {
         IncomingRequests { server: self }
     }
 
-    /// Returns the address the server is listening to.
-    #[inline]
-    pub fn server_addr(&self) -> ListenAddr {
-        self.listening_addr.clone()
-    }
-
     /// Returns the number of clients currently connected to the server.
+    #[must_use]
     pub fn num_connections(&self) -> usize {
         unimplemented!()
         //self.requests_receiver.lock().len()
     }
 
     /// Blocks until an HTTP request has been submitted and returns it.
+    ///
+    /// # Errors
+    ///
+    /// - `[Message::Error]`
+    ///
     pub fn recv(&self) -> IoResult<Request> {
         match self.messages.pop() {
             Some(Message::Error(err)) => Err(err),
@@ -386,6 +419,11 @@ impl Server {
     }
 
     /// Same as `recv()` but doesn't block longer than timeout
+    ///    
+    /// # Errors
+    ///
+    /// - `[Message::Error]`
+    ///
     pub fn recv_timeout(&self, timeout: Duration) -> IoResult<Option<Request>> {
         match self.messages.pop_timeout(timeout) {
             Some(Message::Error(err)) => Err(err),
@@ -394,7 +432,19 @@ impl Server {
         }
     }
 
+    /// Returns the address the server is listening to.
+    #[must_use]
+    #[inline]
+    pub fn server_addr(&self) -> ListenAddr {
+        self.listening_addr.clone()
+    }
+
     /// Same as `recv()` but doesn't block.
+    ///
+    /// # Errors
+    ///
+    /// - `[Message::Error]`
+    ///
     pub fn try_recv(&self) -> IoResult<Option<Request>> {
         match self.messages.try_pop() {
             Some(Message::Error(err)) => Err(err),
@@ -403,23 +453,138 @@ impl Server {
         }
     }
 
-    /// Unblock thread stuck in recv() or incoming_requests().
+    /// Unblock thread stuck in `recv()` or `incoming_requests()`.
     /// If there are several such threads, only one is unblocked.
     /// This method allows graceful shutdown of server.
     pub fn unblock(&self) {
         self.messages.unblock();
     }
-}
 
-impl Iterator for IncomingRequests<'_> {
-    type Item = Request;
-    fn next(&mut self) -> Option<Request> {
-        self.server.recv().ok()
+    #[inline]
+    fn handle_client_connection(
+        task_pool: &TaskPool,
+        client_connection: ClientConnection,
+        inside_messages: &Arc<MessagesQueue<Message>>,
+    ) {
+        let mut client = Some(client_connection);
+
+        let messages = Arc::clone(inside_messages);
+
+        task_pool.spawn_task(Box::new(move || {
+            let client = client.take().unwrap(); // safe: checked at the beginning
+
+            // Synchronization is needed for HTTPS requests to avoid a deadlock
+            if client.secure() {
+                let (sender, receiver) = mpsc::channel();
+                for rq in client {
+                    messages.push(rq.with_notify_sender(sender.clone()).into());
+                    if let Err(err) = receiver.recv() {
+                        log::error!("receiver channel hangup: {err:?}");
+                        let _ = err;
+                    }
+                }
+            } else {
+                for rq in client {
+                    messages.push(rq.into());
+                }
+            }
+        }));
+    }
+
+    #[inline]
+    fn start_http_listener_thread(
+        server: Listener,
+        task_pool: TaskPool,
+        inside_messages: Arc<MessagesQueue<Message>>,
+        inside_close_trigger: Arc<AtomicBool>,
+    ) {
+        let _ = thread::spawn(move || {
+            log::debug!("running accept thread");
+            while !inside_close_trigger.load(Relaxed) {
+                match server.accept() {
+                    Ok((sock, _)) => {
+                        let (read_closable, write_closable) = RefinedTcpStream::new(sock);
+                        let connection = ClientConnection::new(write_closable, read_closable);
+                        Self::handle_client_connection(&task_pool, connection, &inside_messages);
+                    }
+                    Err(err) => {
+                        log::debug!("error on connection accept: {err:?}");
+                        inside_messages.push(err.into());
+                    }
+                };
+            }
+            log::debug!("terminating accept thread");
+        });
+    }
+
+    #[cfg(any(
+        feature = "ssl-openssl",
+        feature = "ssl-rustls",
+        feature = "ssl-native-tls"
+    ))]
+    #[inline]
+    fn start_https_listener_thread(
+        server: Listener,
+        task_pool: TaskPool,
+        ssl_config: &SslConfig,
+        inside_messages: Arc<MessagesQueue<Message>>,
+        inside_close_trigger: Arc<AtomicBool>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // compile check
+        #[cfg(any(
+            all(feature = "ssl-openssl", feature = "ssl-rustls"),
+            all(feature = "ssl-openssl", feature = "ssl-native-tls"),
+            all(feature = "ssl-native-tls", feature = "ssl-rustls"),
+        ))]
+        compile_error!("Only one feature from 'ssl-openssl', 'ssl-rustls', 'ssl-native-tls' can be enabled at the same time");
+
+        // types
+        type SslContext = crate::ssl::SslContextImpl;
+
+        // building the SSL capabilities
+        let ssl_ctx: SslContext =
+            SslContext::from_pem(&ssl_config.certificate, &ssl_config.private_key)?;
+
+        let _ = thread::spawn(move || {
+            log::debug!("running accept thread");
+            while !inside_close_trigger.load(Relaxed) {
+                match server.accept() {
+                    Ok((sock, _)) => {
+                        let (read_closable, write_closable) = {
+                            // trying to apply SSL over the connection
+                            // if an error occurs, we just close the socket and resume listening
+                            let sock = match ssl_ctx.accept(sock) {
+                                Ok(s) => s,
+                                Err(err) => {
+                                    log::debug!("ssl handshake failed: {}", err);
+                                    inside_messages
+                                        .push(IoError::new(std::io::ErrorKind::Other, err).into());
+                                    continue;
+                                }
+                            };
+
+                            RefinedTcpStream::new(sock)
+                        };
+
+                        let connection = ClientConnection::new(write_closable, read_closable);
+                        Self::handle_client_connection(&task_pool, connection, &inside_messages);
+                    }
+                    Err(err) => {
+                        log::debug!("error on connection accept: {err:?}");
+                        inside_messages.push(err.into());
+                    }
+                };
+            }
+            log::debug!("terminating accept thread");
+        });
+
+        Ok(())
     }
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        // close trigger
         self.close.store(true, Relaxed);
         // Connect briefly to ourselves to unblock the accept thread
         let maybe_stream = match &self.listening_addr {

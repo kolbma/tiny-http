@@ -1,11 +1,12 @@
-pub use self::custom_stream::CustomStream;
-pub use self::equal_reader::EqualReader;
-pub use self::fused_reader::FusedReader;
-pub use self::messages_queue::MessagesQueue;
-pub use self::refined_tcp_stream::RefinedTcpStream;
-pub use self::sequential::SequentialWriterBuilder;
-pub use self::sequential::{SequentialReader, SequentialReaderBuilder};
-pub use self::task_pool::TaskPool;
+pub(crate) use self::custom_stream::CustomStream;
+pub(crate) use self::equal_reader::EqualReader;
+pub(crate) use self::fused_reader::FusedReader;
+pub(crate) use self::messages_queue::MessagesQueue;
+pub(crate) use self::refined_tcp_stream::RefinedTcpStream;
+pub(crate) use self::sequential::{
+    SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder,
+};
+pub(crate) use self::task_pool::TaskPool;
 
 use std::str::FromStr;
 
@@ -22,7 +23,7 @@ mod task_pool;
 ///
 /// For example with `text/plain, image/png; q=1.5` this function would
 /// return `[ ("text/plain", 1.0), ("image/png", 1.5) ]`
-pub fn parse_header_value(input: &str) -> Vec<(&str, f32)> {
+pub(crate) fn parse_header_value(input: &str) -> Vec<(&str, f32)> {
     input
         .split(',')
         .filter_map(|elem| {

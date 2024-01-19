@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 /// Creates a server and a client connected to the server.
-pub fn new_one_server_one_client() -> (tiny_http::Server, TcpStream) {
+pub(crate) fn new_one_server_one_client() -> (tiny_http::Server, TcpStream) {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
     let port = server.server_addr().to_ip().unwrap().port();
     let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -13,12 +13,12 @@ pub fn new_one_server_one_client() -> (tiny_http::Server, TcpStream) {
 /// Creates a "hello world" server with a client connected to the server.
 ///
 /// The server will automatically close after 3 seconds.
-pub fn new_client_to_hello_world_server() -> TcpStream {
+pub(crate) fn new_client_to_hello_world_server() -> TcpStream {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
     let port = server.server_addr().to_ip().unwrap().port();
     let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
 
-    thread::spawn(move || {
+    let _ = thread::spawn(move || {
         let mut cycles = 3 * 1000 / 20;
 
         loop {

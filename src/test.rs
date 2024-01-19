@@ -39,6 +39,7 @@ use std::str::FromStr;
 /// let response = server.handle_request(request.into());
 /// assert_eq!(response.status_code(), StatusCode(200));
 /// ```
+#[derive(Debug)]
 pub struct TestRequest {
     body: &'static str,
     remote_addr: SocketAddr,
@@ -92,34 +93,50 @@ impl Default for TestRequest {
     }
 }
 
+#[allow(missing_docs)]
 impl TestRequest {
+    #[must_use]
     pub fn new() -> Self {
         TestRequest::default()
     }
+
+    #[must_use]
     pub fn with_body(mut self, body: &'static str) -> Self {
         self.body = body;
         self
     }
+
+    #[must_use]
     pub fn with_remote_addr(mut self, remote_addr: SocketAddr) -> Self {
         self.remote_addr = remote_addr;
         self
     }
+
+    #[must_use]
     pub fn with_https(mut self) -> Self {
         self.secure = true;
         self
     }
+
+    #[must_use]
     pub fn with_method(mut self, method: Method) -> Self {
         self.method = method;
         self
     }
+
+    #[must_use]
     pub fn with_path(mut self, path: &str) -> Self {
         self.path = path.to_string();
         self
     }
+
+    #[must_use]
     pub fn with_http_version(mut self, version: HTTPVersion) -> Self {
         self.http_version = version;
         self
     }
+
+    #[must_use]
     pub fn with_header(mut self, header: Header) -> Self {
         self.headers.push(header);
         self

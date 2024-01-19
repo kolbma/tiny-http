@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::io::{copy, Read, Write};
 use std::net::{Shutdown, TcpStream};
@@ -15,11 +15,12 @@ struct SlowByteSrc {
     val: u8,
     len: usize,
 }
-impl<'b> Read for SlowByteSrc {
+
+impl Read for SlowByteSrc {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         sleep(Duration::from_millis(100));
         let l = self.len.min(buf.len()).min(1000);
-        for v in buf[..l].iter_mut() {
+        for v in &mut buf[..l] {
             *v = self.val;
         }
         self.len -= l;
@@ -32,7 +33,7 @@ fn encode_chunked(data: &mut dyn Read, output: &mut dyn Write) {
     let mut buf = [0u8; 4096];
     loop {
         let l = data.read(&mut buf).unwrap();
-        write!(output, "{:X}\r\n", l).unwrap();
+        write!(output, "{l:X}\r\n").unwrap();
         output.write_all(&buf[..l]).unwrap();
         write!(output, "\r\n").unwrap();
         if l == 0 {
@@ -53,30 +54,30 @@ mod prompt_pipelining {
     ) {
         let resp_body = SlowByteSrc {
             val: 42,
-            len: 1000_000,
+            len: 1_000_000,
         }; // very slow response body
 
         let server = Server::http("0.0.0.0:0").unwrap();
         let mut client = TcpStream::connect(server.server_addr().to_ip().unwrap()).unwrap();
         let (svr_send, svr_rcv) = channel();
 
-        spawn(move || {
+        let _ = spawn(move || {
             for _ in 0..req_cnt {
                 let mut req = server.recv().unwrap();
                 // read the whole body of the request
                 let mut body = Vec::new();
-                req.as_reader().read_to_end(&mut body).unwrap();
+                let _ = req.as_reader().read_to_end(&mut body).unwrap();
                 assert_eq!(req_body, body.as_slice());
                 // The next pipelined request should now be available for parsing,
                 // while we send the (possibly slow) response in another thread
-                spawn(move || {
+                let _ = spawn(move || {
                     req.respond(Response::empty(200).with_data(resp_body, Some(resp_body.len)))
                 });
             }
             svr_send.send(()).unwrap();
         });
 
-        spawn(move || req_writer(&mut client));
+        let _ = spawn(move || req_writer(&mut client));
 
         // requests must be sent and received quickly (before timeout expires)
         svr_rcv
@@ -145,7 +146,7 @@ mod prompt_responses {
         let server = Server::http("0.0.0.0:0").unwrap();
         let client = TcpStream::connect(server.server_addr().to_ip().unwrap()).unwrap();
 
-        spawn(move || loop {
+        let _ = spawn(move || loop {
             // server attempts to respond immediately
             let req = server.recv().unwrap();
             req.respond(Response::empty(400)).unwrap();
@@ -154,7 +155,8 @@ mod prompt_responses {
         let client = Arc::new(client);
         let client_write = Arc::clone(&client);
         // request written (possibly very slowly) in another thread
-        spawn(move || req_writer(&mut client_write.deref()));
+        #[allow(rust_2021_incompatible_closure_captures)]
+        let _ = spawn(move || req_writer(&mut Arc::deref(&client_write)));
 
         // response should arrive quickly (before timeout expires)
         client.set_read_timeout(Some(timeout)).unwrap();
@@ -165,7 +167,7 @@ mod prompt_responses {
 
     static SLOW_BODY: SlowByteSrc = SlowByteSrc {
         val: 65,
-        len: 1000_000,
+        len: 1_000_000,
     };
 
     #[test]
@@ -173,7 +175,7 @@ mod prompt_responses {
         assert_responds_promptly(Duration::from_millis(200), move |wr| {
             write!(wr, "GET / HTTP/1.1\r\n").unwrap();
             write!(wr, "Content-Length: {}\r\n\r\n", SLOW_BODY.len).unwrap();
-            copy(&mut SLOW_BODY.clone(), wr).unwrap();
+            let _ = copy(&mut SLOW_BODY.clone(), wr).unwrap();
         });
     }
 
@@ -182,7 +184,7 @@ mod prompt_responses {
         assert_responds_promptly(Duration::from_millis(200), move |wr| {
             write!(wr, "GET / HTTP/1.0\r\n").unwrap();
             write!(wr, "Content-Length: {}\r\n\r\n", SLOW_BODY.len).unwrap();
-            copy(&mut SLOW_BODY.clone(), wr).unwrap();
+            let _ = copy(&mut SLOW_BODY.clone(), wr).unwrap();
         });
     }
 
@@ -192,7 +194,7 @@ mod prompt_responses {
             write!(wr, "GET / HTTP/1.1\r\n").unwrap();
             write!(wr, "Expect: 100 continue\r\n").unwrap();
             write!(wr, "Content-Length: {}\r\n\r\n", SLOW_BODY.len).unwrap();
-            copy(&mut SLOW_BODY.clone(), wr).unwrap();
+            let _ = copy(&mut SLOW_BODY.clone(), wr).unwrap();
         });
     }
 

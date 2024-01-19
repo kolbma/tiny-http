@@ -14,7 +14,7 @@ What does **tiny-http** handle?
  - Accepting and managing connections to the clients
  - Parsing requests
  - Requests pipelining
- - HTTPS (using either OpenSSL or Rustls)
+ - HTTPS (using either OpenSSL, Rustls or native-tls)
  - Transfer-Encoding and Content-Encoding
  - Turning user input (eg. POST input) into a contiguous UTF-8 string (**not implemented yet**)
  - Ranges (**not implemented yet**)
@@ -31,8 +31,31 @@ Add this to the `Cargo.toml` file of your project:
 
 ```toml
 [dependencies]
-tiny_http = "0.11"
+tiny_http = "0.12"
 ```
+
+#### Minimum Supported Rust Version
+
+At least version __1.60__.  
+But feature __ssl-rustls__ needs __1.61__ and default feature __socket2__ needs __1.63__.
+
+
+### Features
+
+#### Default features
+
+- log: uses log trait to debug and error
+- socket2: provides configurable TCP socket
+
+#### Optional features
+
+- log: uses log trait to debug and error
+- socket2: provides configurable TCP socket
+
+Select single _ssl_ feature...  
+- ssl: HTTPS with openssl support
+- ssl-native-tls: HTTPS with native-tls support
+- ssl-rustls: HTTPS with rustls support
 
 ### Usage
 
@@ -52,6 +75,20 @@ for request in server.incoming_requests() {
     request.respond(response);
 }
 ```
+
+#### Running Included Examples
+
+1. Clone this repository locally
+2. to run an example in the examples folder run:
+```bash
+cargo run --example [example_name]
+```
+
+example:
+```bash
+cargo run --example hello-world
+```
+
 
 ### Speed
 
@@ -73,7 +110,7 @@ Tiny-http was designed with speed in mind:
  - Decoding the client's request is done lazily. If you don't read the request's body, it will not
  be decoded.
 
-### Examples
+### Example Implementations
 
 Examples of tiny-http in use:
 

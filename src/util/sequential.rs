@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use std::mem;
 
-pub struct SequentialReaderBuilder<R>
+pub(crate) struct SequentialReaderBuilder<R>
 where
     R: Read + Send,
 {
@@ -22,7 +22,7 @@ where
     NotFirst(Receiver<R>),
 }
 
-pub struct SequentialReader<R>
+pub(crate) struct SequentialReader<R>
 where
     R: Read + Send,
 {
@@ -39,7 +39,7 @@ where
     Empty,
 }
 
-pub struct SequentialWriterBuilder<W>
+pub(crate) struct SequentialWriterBuilder<W>
 where
     W: Write + Send,
 {
@@ -47,7 +47,7 @@ where
     next_trigger: Option<Receiver<()>>,
 }
 
-pub struct SequentialWriter<W>
+pub(crate) struct SequentialWriter<W>
 where
     W: Write + Send,
 {
@@ -57,7 +57,7 @@ where
 }
 
 impl<R: Read + Send> SequentialReaderBuilder<R> {
-    pub fn new(reader: R) -> SequentialReaderBuilder<R> {
+    pub(crate) fn new(reader: R) -> SequentialReaderBuilder<R> {
         SequentialReaderBuilder {
             inner: SequentialReaderBuilderInner::First(reader),
         }
@@ -65,7 +65,7 @@ impl<R: Read + Send> SequentialReaderBuilder<R> {
 }
 
 impl<W: Write + Send> SequentialWriterBuilder<W> {
-    pub fn new(writer: W) -> SequentialWriterBuilder<W> {
+    pub(crate) fn new(writer: W) -> SequentialWriterBuilder<W> {
         SequentialWriterBuilder {
             writer: Arc::new(Mutex::new(writer)),
             next_trigger: None,
@@ -153,11 +153,11 @@ where
 
         match inner {
             SequentialReaderInner::MyTurn(reader) => {
-                self.next.send(reader).ok();
+                let _ = self.next.send(reader);
             }
             SequentialReaderInner::Waiting(recv) => {
                 let reader = recv.recv().unwrap();
-                self.next.send(reader).ok();
+                let _ = self.next.send(reader);
             }
             SequentialReaderInner::Empty => (),
         }
@@ -169,6 +169,6 @@ where
     W: Write + Send,
 {
     fn drop(&mut self) {
-        self.on_finish.send(()).ok();
+        let _ = self.on_finish.send(());
     }
 }

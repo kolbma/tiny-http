@@ -1,7 +1,8 @@
 use ascii::{AsAsciiStr, AsciiChar, AsciiStr, AsciiString, FromAsciiError};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Formatter};
+use std::hash::Hash;
 use std::str::FromStr;
 
 /// Status code of a request or response.
@@ -11,6 +12,8 @@ pub struct StatusCode(pub u16);
 impl StatusCode {
     /// Returns the default reason phrase for this status code.
     /// For example the status code 404 corresponds to "Not Found".
+    ///
+    #[must_use]
     pub fn default_reason_phrase(&self) -> &'static str {
         match self.0 {
             100 => "Continue",
@@ -84,18 +87,21 @@ impl StatusCode {
 
 impl From<i8> for StatusCode {
     fn from(in_code: i8) -> StatusCode {
+        #[allow(clippy::cast_sign_loss)]
         StatusCode(in_code as u16)
     }
 }
 
 impl From<u8> for StatusCode {
     fn from(in_code: u8) -> StatusCode {
+        #[allow(clippy::cast_lossless)]
         StatusCode(in_code as u16)
     }
 }
 
 impl From<i16> for StatusCode {
     fn from(in_code: i16) -> StatusCode {
+        #[allow(clippy::cast_sign_loss)]
         StatusCode(in_code as u16)
     }
 }
@@ -108,12 +114,14 @@ impl From<u16> for StatusCode {
 
 impl From<i32> for StatusCode {
     fn from(in_code: i32) -> StatusCode {
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         StatusCode(in_code as u16)
     }
 }
 
 impl From<u32> for StatusCode {
     fn from(in_code: u32) -> StatusCode {
+        #[allow(clippy::cast_possible_truncation)]
         StatusCode(in_code as u16)
     }
 }
@@ -151,24 +159,27 @@ impl PartialOrd<StatusCode> for u16 {
 /// Represents a HTTP header.
 #[derive(Debug, Clone)]
 pub struct Header {
+    /// `field` of [Header]
     pub field: HeaderField,
+    /// `value` for [HeaderField]
     pub value: AsciiString,
 }
 
 impl Header {
     /// Builds a `Header` from two `Vec<u8>`s or two `&[u8]`s.
     ///
-    /// Example:
+    /// # Errors
+    ///
+    /// - mapped `FromAsciiError` for `header`
+    /// - mapped `FromAsciiError` for `value`
+    ///
+    /// # Examples
     ///
     /// ```
     /// let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap();
     /// ```
     #[allow(clippy::result_unit_err)]
-    pub fn from_bytes<B1, B2>(header: B1, value: B2) -> Result<Header, ()>
-    where
-        B1: Into<Vec<u8>> + AsRef<[u8]>,
-        B2: Into<Vec<u8>> + AsRef<[u8]>,
-    {
+    pub fn from_bytes(header: &[u8], value: &[u8]) -> Result<Header, ()> {
         let header = HeaderField::from_bytes(header).or(Err(()))?;
         let value = AsciiString::from_ascii(value).or(Err(()))?;
 
@@ -180,22 +191,25 @@ impl Header {
 }
 
 impl FromStr for Header {
-    type Err = ();
+    type Err = HeaderError;
 
-    fn from_str(input: &str) -> Result<Header, ()> {
+    fn from_str(input: &str) -> Result<Header, HeaderError> {
         let mut elems = input.splitn(2, ':');
 
-        let field = elems.next().and_then(|f| f.parse().ok()).ok_or(())?;
+        let field = elems
+            .next()
+            .and_then(|f| f.parse().ok())
+            .ok_or(HeaderError)?;
         let value = elems
             .next()
             .and_then(|v| AsciiString::from_ascii(v.trim()).ok())
-            .ok_or(())?;
+            .ok_or(HeaderError)?;
 
         Ok(Header { field, value })
     }
 }
 
-impl Display for Header {
+impl std::fmt::Display for Header {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}: {}", self.field, self.value.as_str())
     }
@@ -223,6 +237,12 @@ impl TryFrom<&AsciiStr> for Header {
 pub struct HeaderField(AsciiString);
 
 impl HeaderField {
+    /// Create `[HeaderField]` from `bytes`
+    ///
+    /// # Errors
+    ///
+    /// - `FromAsciiError` for `bytes` conversion
+    ///
     pub fn from_bytes<B>(bytes: B) -> Result<HeaderField, FromAsciiError<B>>
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
@@ -230,23 +250,29 @@ impl HeaderField {
         AsciiString::from_ascii(bytes).map(HeaderField)
     }
 
+    /// Get `[HeaderField]` as `&AsciiStr`
+    #[must_use]
     pub fn as_str(&self) -> &AsciiStr {
         &self.0
     }
 
+    /// Checks `[HeaderField]` for equivalence ignoring case of letters
+    #[must_use]
     pub fn equiv(&self, other: &'static str) -> bool {
         other.eq_ignore_ascii_case(self.as_str().as_str())
     }
 }
 
 impl FromStr for HeaderField {
-    type Err = ();
+    type Err = HeaderError;
 
-    fn from_str(s: &str) -> Result<HeaderField, ()> {
+    fn from_str(s: &str) -> Result<HeaderField, HeaderError> {
         if s.contains(char::is_whitespace) {
-            Err(())
+            Err(HeaderError)
         } else {
-            AsciiString::from_ascii(s).map(HeaderField).map_err(|_| ())
+            AsciiString::from_ascii(s)
+                .map(HeaderField)
+                .map_err(|_| HeaderError)
         }
     }
 }
@@ -264,7 +290,7 @@ impl TryFrom<&AsciiStr> for HeaderField {
     }
 }
 
-impl Display for HeaderField {
+impl std::fmt::Display for HeaderField {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}", self.0.as_str())
     }
@@ -275,6 +301,28 @@ impl PartialEq for HeaderField {
         let self_str: &str = self.as_str().as_ref();
         let other_str = other.as_str().as_ref();
         self_str.eq_ignore_ascii_case(other_str)
+    }
+}
+
+impl Hash for HeaderField {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_ascii_lowercase().hash(state);
+    }
+}
+
+// Needs to be lower-case!!!
+pub(crate) const HEADER_FORBIDDEN: &[&str] =
+    &["connection", "trailer", "transfer-encoding", "upgrade"];
+
+/// Header was not added
+#[derive(Debug)]
+pub struct HeaderError;
+
+impl std::error::Error for HeaderError {}
+
+impl std::fmt::Display for HeaderError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("header not allowed")
     }
 }
 
@@ -316,6 +364,8 @@ pub enum Method {
 }
 
 impl Method {
+    /// enum [Method] names as `&str`
+    #[must_use]
     pub fn as_str(&self) -> &str {
         match *self {
             Method::Get => "GET",
@@ -354,7 +404,7 @@ impl FromStr for Method {
     }
 }
 
-impl Display for Method {
+impl std::fmt::Display for Method {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}", self.as_str())
     }
@@ -383,7 +433,7 @@ impl From<&AsciiStr> for Method {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HTTPVersion(pub u8, pub u8);
 
-impl Display for HTTPVersion {
+impl std::fmt::Display for HTTPVersion {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{}.{}", self.0, self.1)
     }
@@ -450,13 +500,13 @@ mod test {
     use ascii::AsAsciiStr;
     use httpdate::HttpDate;
 
-    use super::Header;
+    use super::{Header, HEADER_FORBIDDEN};
 
     #[test]
     fn test_parse_header() {
         let header: Header = "Content-Type: text/html".parse().unwrap();
 
-        assert!(header.field.equiv(&"content-type"));
+        assert!(header.field.equiv("content-type"));
         assert!(header.value.as_str() == "text/html");
 
         assert!("hello world".parse::<Header>().is_err());
@@ -467,22 +517,22 @@ mod test {
         let header: Header =
             Header::try_from("Content-Type: text/html".as_ascii_str().unwrap()).unwrap();
 
-        assert!(header.field.equiv(&"content-type"));
+        assert!(header.field.equiv("content-type"));
         assert!(header.value.as_str() == "text/html");
     }
 
     #[test]
     fn formats_date_correctly() {
-        let http_date = HttpDate::from(SystemTime::UNIX_EPOCH + Duration::from_secs(420895020));
+        let http_date = HttpDate::from(SystemTime::UNIX_EPOCH + Duration::from_secs(420_895_020));
 
-        assert_eq!(http_date.to_string(), "Wed, 04 May 1983 11:17:00 GMT")
+        assert_eq!(http_date.to_string(), "Wed, 04 May 1983 11:17:00 GMT");
     }
 
     #[test]
     fn test_parse_header_with_doublecolon() {
         let header: Header = "Time: 20: 34".parse().unwrap();
 
-        assert!(header.field.equiv(&"time"));
+        assert!(header.field.equiv("time"));
         assert!(header.value.as_str() == "20: 34");
     }
 
@@ -490,7 +540,7 @@ mod test {
     fn test_header_with_doublecolon_try_from_ascii() {
         let header: Header = Header::try_from("Time: 20: 34".as_ascii_str().unwrap()).unwrap();
 
-        assert!(header.field.equiv(&"time"));
+        assert!(header.field.equiv("time"));
         assert!(header.value.as_str() == "20: 34");
     }
 
@@ -537,6 +587,13 @@ mod test {
                 s,
                 header.unwrap_err()
             );
+        }
+    }
+
+    #[test]
+    fn test_header_forbidden_lc() {
+        for h in HEADER_FORBIDDEN {
+            assert_eq!(h, &h.to_lowercase());
         }
     }
 }

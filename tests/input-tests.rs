@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::io::{Read, Write};
 use std::net::Shutdown;
@@ -20,7 +20,7 @@ fn basic_string_input() {
     let mut request = server.recv().unwrap();
 
     let mut output = String::new();
-    request.as_reader().read_to_string(&mut output).unwrap();
+    let _ = request.as_reader().read_to_string(&mut output).unwrap();
     assert_eq!(output, "hello");
 }
 
@@ -36,7 +36,7 @@ fn wrong_content_length() {
     let mut request = server.recv().unwrap();
 
     let mut output = String::new();
-    request.as_reader().read_to_string(&mut output).unwrap();
+    let _ = request.as_reader().read_to_string(&mut output).unwrap();
     assert_eq!(output, "hel");
 }
 
@@ -50,10 +50,10 @@ fn expect_100_continue() {
 
     let (tx, rx) = mpsc::channel();
 
-    thread::spawn(move || {
+    let _ = thread::spawn(move || {
         let mut request = server.recv().unwrap();
         let mut output = String::new();
-        request.as_reader().read_to_string(&mut output).unwrap();
+        let _ = request.as_reader().read_to_string(&mut output).unwrap();
         assert_eq!(output, "hello");
         tx.send(()).unwrap();
     });
@@ -78,7 +78,7 @@ fn unsupported_expect_header() {
 
     // client.set_keepalive(Some(3)).unwrap(); FIXME: reenable this
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with("417")); // 417 status code
 }
 
@@ -90,7 +90,7 @@ fn invalid_header_name() {
     (write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: text/plain; charset=utf8\r\nContent-Length : 5\r\n\r\nhello")).unwrap();
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with("400 Bad Request")); // 400 status code
 }
 
@@ -106,16 +106,18 @@ fn custom_content_type_response_header() {
     let request = server.recv().unwrap();
     request
         .respond(
-            tiny_http::Response::from_string("{\"custom\": \"Content-Type\"}").with_header(
-                "Content-Type: application/json"
-                    .parse::<tiny_http::Header>()
-                    .unwrap(),
-            ),
+            tiny_http::Response::from_string("{\"custom\": \"Content-Type\"}")
+                .with_header(
+                    "Content-Type: application/json"
+                        .parse::<tiny_http::Header>()
+                        .unwrap(),
+                )
+                .unwrap(),
         )
         .unwrap();
 
     let mut content = String::new();
-    stream.read_to_string(&mut content).unwrap();
+    let _ = stream.read_to_string(&mut content).unwrap();
 
     assert!(content.ends_with("{\"custom\": \"Content-Type\"}"));
     assert_ne!(content.find("Content-Type: application/json"), None);
@@ -134,7 +136,7 @@ fn too_long_header_field() {
     ).unwrap();
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with("200 OK"), "{}", &content); // 200 status with body
 
     // out of limit
@@ -146,7 +148,7 @@ fn too_long_header_field() {
     ).unwrap();
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with("431 Request Header Fields Too Large")); // 431 status code
 }
 
@@ -172,7 +174,7 @@ fn too_long_header() {
     .unwrap();
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with("200 OK"), "{}", &content); // 200 status with body
 
     // out of limit
@@ -193,6 +195,6 @@ fn too_long_header() {
     .unwrap();
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with("431 Request Header Fields Too Large")); // 431 status code
 }

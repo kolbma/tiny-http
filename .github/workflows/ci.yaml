@@ -1,64 +1,280 @@
 on: [push, pull_request]
 name: CI
 jobs:
-  clippy_rustfmt:
-    name: Lint & Format
+  clippy_1_63:
+    name: Clippy Lint 1.63, Stable, Nightly
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features:
-          - default
-          - ssl-openssl
-          - ssl-rustls
+        rust-1-63:
+          - stable
+          - nightly
+          - '1.63'
+        no-default-features-1-63:
+          - --no-default-features
+          - ''
+        features-1-63:
+          - ''
+          - --features log
+          - --features socket2
+          - --features ssl-openssl
+          - --features ssl-rustls
+          - --features ssl-native-tls
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-1-63 }}
+          components: clippy
+
+      - name: Clippy ${{ matrix.rust-1-63 }}
+        run: |
+          cargo clippy ${{ matrix.no-default-features-1-63 }} ${{ matrix.features-1-63 }}
+          cargo --version
+          rustc --version
+
+  clippy_1_61:
+    name: Clippy Lint 1.61
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust-1-61:
+          - '1.61'
+        no-default-features-1-61:
+          - --no-default-features
+        features-1-61:
+          - ''
+          - --features log
+          - --features ssl-openssl
+          - --features ssl-rustls
+          - --features ssl-native-tls
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-1-61 }}
+          components: clippy
+
+      - name: Clippy 1.61
+        run: |
+          cargo clippy ${{ matrix.no-default-features-1-61 }} ${{ matrix.features-1-61 }}
+          cargo --version
+          rustc --version
+
+  clippy_1_60:
+    name: Clippy Lint 1.60
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust-1-60:
+          - '1.60'
+        no-default-features-1-60:
+          - --no-default-features
+        features-1-60:
+          - ''
+          - --features log
+          - --features ssl-openssl
+          - --features ssl-native-tls
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-1-60 }}
+          components: clippy
+
+      - name: Clippy 1.60
+        run: |
+          cargo clippy ${{ matrix.no-default-features-1-60 }} ${{ matrix.features-1-60 }}
+          cargo --version
+          rustc --version
+
+  rustfmt:
+    name: Rust Cargo fmt
+    runs-on: ubuntu-latest
+    needs: [clippy_1_63, clippy_1_61, clippy_1_60]
+    strategy:
+      matrix:
+        no-default-features:
+          - --no-default-features
+          - ''
+        features:
+          - ''
+          - --features log
+          - --features socket2
+          - --features ssl-openssl
+          - --features ssl-rustls
+          - --features ssl-native-tls
+    steps:
+      - uses: actions/checkout@v4
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          components: rustfmt, clippy
-
-      - name: Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --features ${{ matrix.features }}
+          components: rustfmt
 
       - name: Format
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: -- --check
+        run: |
+          cargo fmt -- --check
+          cargo --version
 
-  test:
-    name: Build & Test
+  test_log:
+    name: Build & Test log feature
     runs-on: ubuntu-latest
+    needs: rustfmt
     strategy:
       matrix:
         rust:
           - stable
           - nightly
-          - 1.56
+          - '1.60'
         features:
-          - default
-          - ssl-openssl
-          - ssl-rustls
+          - ''
+          - ssl-native-tls
+          - ssl
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          override: true
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --features ${{ matrix.features }}
+        run: |
+          cargo build --release --no-default-features --features log,${{ matrix.features }}
+          cargo --version
+          rustc --version
 
       - name: Test
-        uses: actions-rs/cargo@v1
+        run: |
+          cargo test --no-default-features --features log,${{ matrix.features }}
+          cargo --version
+
+  test_native_tls:
+    name: Build & Test ssl-native-tls feature
+    runs-on: ubuntu-latest
+    needs: test_log
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - '1.60'
+        features:
+          - ''
+          - log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
-          command: test
-          args: --features ${{ matrix.features }}
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: |
+          cargo build --release --no-default-features --features ssl-native-tls,${{ matrix.features }}
+          cargo --version
+          rustc --version
+
+      - name: Test
+        run: |
+          cargo test --no-default-features --features ssl-native-tls,${{ matrix.features }}
+          cargo --version
+
+  test_rustls:
+    name: Build & Test ssl-rustls feature
+    runs-on: ubuntu-latest
+    needs: rustfmt
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - '1.61'
+        features:
+          - ''
+          - log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: |
+          cargo build --release --no-default-features --features ssl-rustls,${{ matrix.features }}
+          cargo --version
+          rustc --version
+
+      - name: Test
+        run: |
+          cargo test --no-default-features --features ssl-rustls,${{ matrix.features }}  
+          cargo --version
+
+  test_socket2:
+    name: Build & Test socket2 feature
+    runs-on: ubuntu-latest
+    needs: rustfmt
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - '1.63'
+        features:
+          - ''
+          - log
+          - ssl-native-tls
+          - ssl-rustls
+          - ssl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: |
+          cargo build --release --no-default-features --features socket2,${{ matrix.features }}
+          cargo --version
+          rustc --version
+
+      - name: Test
+        run: |
+          cargo test --no-default-features --features socket2,${{ matrix.features }}
+          cargo --version
+
+  test_ssl:
+    name: Build & Test ssl feature
+    runs-on: ubuntu-latest
+    needs: test_log
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - '1.60'
+        features:
+          - ''
+          - log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: |
+          cargo build --release --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version
+          rustc --version
+
+      - name: Test
+        run: |
+          cargo test --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version

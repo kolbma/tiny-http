@@ -1,6 +1,5 @@
 #![cfg(unix)]
-
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::{
     io::{Read, Write},
@@ -36,9 +35,9 @@ fn unix_basic_handling() {
         .respond(tiny_http::Response::from_string("hello world".to_owned()))
         .unwrap();
 
-    server.try_recv().unwrap();
+    let _ = server.try_recv().unwrap();
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(content.ends_with("hello world"));
 }

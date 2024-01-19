@@ -12,9 +12,9 @@ use crate::util::{SequentialReader, SequentialReaderBuilder, SequentialWriterBui
 use crate::Header;
 use crate::Request;
 
-/// A ClientConnection is an object that will store a socket to a client
+/// A `ClientConnection` is an object that will store a socket to a client
 /// and return Request objects.
-pub struct ClientConnection {
+pub(crate) struct ClientConnection {
     // address of the client
     remote_addr: IoResult<Option<SocketAddr>>,
 
@@ -48,7 +48,7 @@ enum ReadError {
 
 impl ClientConnection {
     /// Creates a new `ClientConnection` that takes ownership of the `TcpStream`.
-    pub fn new(
+    pub(crate) fn new(
         write_socket: RefinedTcpStream,
         mut read_socket: RefinedTcpStream,
     ) -> ClientConnection {
@@ -69,11 +69,11 @@ impl ClientConnection {
     }
 
     /// true if the connection is HTTPS
-    pub fn secure(&self) -> bool {
+    pub(crate) fn secure(&self) -> bool {
         self.secure
     }
 
-    /// Reads the next line from self.next_header_source.
+    /// Reads the next line from `self.next_header_source`.
     ///
     /// Reads until `CRLF` is reached. The next read will start
     ///  at the first byte of the new line.
@@ -93,7 +93,7 @@ impl ClientConnection {
             };
 
             if byte == b'\n' && prev_byte_was_cr {
-                buf.pop(); // removing the '\r'
+                let _ = buf.pop(); // removing the '\r'
                 return AsciiString::from_ascii(buf)
                     .map_err(|_| IoError::new(ErrorKind::InvalidInput, "Header is not in ASCII"));
             }
@@ -228,18 +228,16 @@ impl Iterator for ClientConnection {
             let rq = match self.read() {
                 Err(ReadError::WrongRequestLine) => {
                     let writer = self.sink.next().unwrap();
-                    let response = Response::new_empty(StatusCode(400));
-                    response
-                        .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
-                        .ok();
+                    let response = Response::empty(400);
+                    let _ = response.raw_print(writer, &HTTPVersion(1, 1), &[], false, None);
                     return None; // we don't know where the next request would start,
                                  // se we have to close
                 }
 
                 Err(ReadError::WrongHeader(ver)) => {
                     let writer = self.sink.next().unwrap();
-                    let response = Response::new_empty(StatusCode(400));
-                    response.raw_print(writer, &ver, &[], false, None).ok();
+                    let response = Response::empty(400);
+                    let _ = response.raw_print(writer, &ver, &[], false, None);
                     return None; // we don't know where the next request would start,
                                  // se we have to close
                 }
@@ -247,17 +245,15 @@ impl Iterator for ClientConnection {
                 Err(ReadError::ReadIoError(ref err)) if err.kind() == ErrorKind::TimedOut => {
                     // request timeout
                     let writer = self.sink.next().unwrap();
-                    let response = Response::new_empty(StatusCode(408));
-                    response
-                        .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
-                        .ok();
+                    let response = Response::empty(408);
+                    let _ = response.raw_print(writer, &HTTPVersion(1, 1), &[], false, None);
                     return None; // closing the connection
                 }
 
                 Err(ReadError::ExpectationFailed(ver)) => {
                     let writer = self.sink.next().unwrap();
-                    let response = Response::new_empty(StatusCode(417));
-                    response.raw_print(writer, &ver, &[], true, None).ok();
+                    let response = Response::empty(417);
+                    let _ = response.raw_print(writer, &ver, &[], true, None);
                     return None; // TODO: should be recoverable, but needs handling in case of body
                 }
 
@@ -271,14 +267,10 @@ impl Iterator for ClientConnection {
                         });
 
                         let writer = self.sink.next().unwrap();
-                        let response = Response::new_empty(status);
-                        response
-                            .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
-                            .ok();
-                        return None; // closing the connection
-                    } else {
-                        return None;
+                        let response = Response::empty(status);
+                        let _ = response.raw_print(writer, &HTTPVersion(1, 1), &[], false, None);
                     }
+                    return None; // closing the connection
                 }
 
                 Err(ReadError::ReadIoError(_)) => return None,
@@ -293,9 +285,7 @@ impl Iterator for ClientConnection {
                     "This server only supports HTTP versions 1.0 and 1.1".to_owned(),
                 )
                 .with_status_code(StatusCode(505));
-                response
-                    .raw_print(writer, &HTTPVersion(1, 1), &[], false, None)
-                    .ok();
+                let _ = response.raw_print(writer, &HTTPVersion(1, 1), &[], false, None);
                 continue;
             }
 
@@ -306,7 +296,7 @@ impl Iterator for ClientConnection {
                 .find(|h| h.field.equiv("Connection"))
                 .map(|h| h.value.as_str());
 
-            let lowercase = connection_header.map(|h| h.to_ascii_lowercase());
+            let lowercase = connection_header.map(str::to_ascii_lowercase);
 
             match lowercase {
                 Some(ref val) if val.contains("close") => self.no_more_requests = true,

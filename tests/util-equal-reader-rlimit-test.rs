@@ -1,8 +1,7 @@
 #![cfg(unix)]
+#![allow(unused_crate_dependencies)]
 
 use std::io::Write;
-
-extern crate tiny_http;
 
 #[allow(dead_code)]
 mod support;
@@ -24,6 +23,6 @@ fn test_equal_reader_drop_rlimit() {
     let mut request = server.recv().unwrap();
 
     let mut output = String::new();
-    request.as_reader().read_to_string(&mut output).unwrap();
+    let _ = request.as_reader().read_to_string(&mut output).unwrap();
     assert_eq!(output, "hello");
 }

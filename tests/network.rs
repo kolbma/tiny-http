@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
@@ -20,7 +20,7 @@ fn connection_close_header() {
     // if the connection was not closed, this will err with timeout
     // client.set_keepalive(Some(1)).unwrap(); FIXME: reenable this
     let mut out = Vec::new();
-    client.read_to_end(&mut out).unwrap();
+    let _ = client.read_to_end(&mut out).unwrap();
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn http_1_0_connection_close() {
     // if the connection was not closed, this will err with timeout
     // client.set_keepalive(Some(1)).unwrap(); FIXME: reenable this
     let mut out = Vec::new();
-    client.read_to_end(&mut out).unwrap();
+    let _ = client.read_to_end(&mut out).unwrap();
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn detect_connection_closed() {
     // if the connection was not closed, this will err with timeout
     // client.set_keepalive(Some(1)).unwrap(); FIXME: reenable this
     let mut out = Vec::new();
-    client.read_to_end(&mut out).unwrap();
+    let _ = client.read_to_end(&mut out).unwrap();
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn poor_network_test() {
 
     // client.set_keepalive(Some(2)).unwrap(); FIXME: reenable this
     let mut data = String::new();
-    client.read_to_string(&mut data).unwrap();
+    let _ = client.read_to_string(&mut data).unwrap();
     assert!(data.ends_with("hello world"));
 }
 
@@ -94,7 +94,7 @@ fn pipelining_test() {
 
     // client.set_keepalive(Some(2)).unwrap(); FIXME: reenable this
     let mut data = String::new();
-    client.read_to_string(&mut data).unwrap();
+    let _ = client.read_to_string(&mut data).unwrap();
     assert_eq!(data.split("hello world").count(), 4);
 }
 
@@ -104,8 +104,8 @@ fn server_crash_results_in_response() {
     let port = server.server_addr().to_ip().unwrap().port();
     let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
 
-    thread::spawn(move || {
-        server.recv().unwrap();
+    let _ = thread::spawn(move || {
+        let _ = server.recv().unwrap();
         // oops, server crash
     });
 
@@ -117,7 +117,7 @@ fn server_crash_results_in_response() {
 
     // client.set_keepalive(Some(2)).unwrap(); FIXME: reenable this
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(&content[9..].starts_with('5')); // 5xx status code
 }
 
@@ -132,11 +132,11 @@ fn responses_reordered() {
     ))
     .unwrap();
 
-    thread::spawn(move || {
+    let _ = thread::spawn(move || {
         let rq1 = server.recv().unwrap();
         let rq2 = server.recv().unwrap();
 
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             rq2.respond(tiny_http::Response::from_string(
                 "second request".to_owned(),
             ))
@@ -145,7 +145,7 @@ fn responses_reordered() {
 
         thread::sleep(Duration::from_millis(100));
 
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             rq1.respond(tiny_http::Response::from_string("first request".to_owned()))
                 .unwrap();
         });
@@ -153,7 +153,7 @@ fn responses_reordered() {
 
     // client.set_keepalive(Some(2)).unwrap(); FIXME: reenable this
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
     assert!(content.ends_with("second request"));
 }
 
@@ -161,13 +161,13 @@ fn responses_reordered() {
 fn no_transfer_encoding_on_204() {
     let (server, mut client) = support::new_one_server_one_client();
 
-    (write!(
+    write!(
         client,
         "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
-    ))
+    )
     .unwrap();
 
-    thread::spawn(move || {
+    let _ = thread::spawn(move || {
         let rq = server.recv().unwrap();
 
         let resp = tiny_http::Response::empty(tiny_http::StatusCode(204));
@@ -175,44 +175,129 @@ fn no_transfer_encoding_on_204() {
     });
 
     let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
+    let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.starts_with("HTTP/1.1 204"));
     assert!(!content.contains("Transfer-Encoding: chunked"));
 }
 
-/* FIXME: uncomment and fix
 #[test]
-fn connection_timeout() {
+#[cfg(feature = "socket2")]
+fn connection_timeout() -> Result<(), std::io::Error> {
+    use std::time::{Duration, Instant};
+    use tiny_http::ServerConfig;
+
+    let now = Instant::now();
+
     let (server, mut client) = {
-        let server = tiny_http::ServerBuilder::new()
-            .with_client_connections_timeout(3000)
-            .with_random_port().build().unwrap();
-        let port = server.server_addr().port();
+        let server = tiny_http::Server::new(&ServerConfig {
+            addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
+            socket_config: tiny_http::SocketConfig {
+                read_timeout: Duration::from_millis(100),
+                write_timeout: Duration::from_millis(100),
+                ..tiny_http::SocketConfig::default()
+            },
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
+            ssl: None,
+        })
+        .unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
         let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
         (server, client)
     };
 
-    let (tx_stop, rx_stop) = mpsc::channel();
+    let _ = thread::spawn(move || {
+        let rq = server.recv_timeout(Duration::from_secs(300));
+        assert!(rq.is_ok(), "req fail: {}", rq.unwrap_err());
 
-    // executing server in parallel
-    thread::spawn(move || {
-        loop {
-            server.try_recv();
-            thread::sleep(Duration::from_millis(100));
-            if rx_stop.try_recv().is_ok() { break }
-        }
+        let rq = rq.unwrap();
+        assert!(rq.is_some());
+        let rq = rq.unwrap();
+
+        let resp = tiny_http::Response::empty(tiny_http::StatusCode(204));
+        rq.respond(resp).unwrap();
     });
 
-    // waiting for the 408 response
-    let mut content = String::new();
-    client.read_to_string(&mut content).unwrap();
-    assert!(&content[9..].starts_with("408"));
+    write!(client, "GET / HTTP/1.1\r\n\r\n")?;
 
-    // stopping server
-    tx_stop.send(());
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content).unwrap();
+    assert!(content.starts_with("HTTP/1.1 204"));
+
+    thread::sleep(Duration::from_millis(200));
+
+    let err = write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
+    );
+    assert!(err.is_ok());
+
+    let elaps = now.elapsed();
+    assert!(
+        elaps > Duration::from_millis(230) && elaps < Duration::from_millis(320),
+        "elaps: {}",
+        elaps.as_millis()
+    );
+
+    Ok(())
 }
-*/
+
+#[test]
+#[cfg(feature = "socket2")]
+fn connection_timeout_wait_check() -> Result<(), std::io::Error> {
+    use std::time::{Duration, Instant};
+    use tiny_http::ServerConfig;
+
+    let now = Instant::now();
+
+    let (server, mut client) = {
+        let server = tiny_http::Server::new(&ServerConfig {
+            addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
+            socket_config: tiny_http::SocketConfig {
+                read_timeout: Duration::from_millis(250),
+                write_timeout: Duration::from_millis(250),
+                ..tiny_http::SocketConfig::default()
+            },
+            #[cfg(any(
+                feature = "ssl-openssl",
+                feature = "ssl-rustls",
+                feature = "ssl-native-tls"
+            ))]
+            ssl: None,
+        })
+        .unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        (server, client)
+    };
+
+    let _ = thread::spawn(move || {
+        let rq = server.recv_timeout(Duration::from_secs(300));
+        assert!(rq.is_err());
+    });
+
+    // make sure it is waiting longer than server timeouts
+    thread::sleep(Duration::from_millis(300));
+
+    let err = write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
+    );
+    assert!(err.is_ok());
+
+    let elaps = now.elapsed();
+    assert!(
+        elaps > Duration::from_millis(300) && elaps < Duration::from_millis(330),
+        "elaps: {}",
+        elaps.as_millis()
+    );
+
+    Ok(())
+}
 
 #[test]
 fn chunked_threshold() {

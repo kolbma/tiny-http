@@ -1,20 +1,28 @@
-extern crate tiny_http;
+#![allow(missing_docs, unused_crate_dependencies)]
 
-#[cfg(not(any(feature = "ssl-openssl", feature = "ssl-rustls")))]
+#[cfg(not(any(
+    feature = "ssl-openssl",
+    feature = "ssl-rustls",
+    feature = "ssl-native-tls"
+)))]
 fn main() {
     println!("This example requires one of the supported `ssl-*` features to be enabled");
 }
 
-#[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+#[cfg(any(
+    feature = "ssl-openssl",
+    feature = "ssl-rustls",
+    feature = "ssl-native-tls"
+))]
 fn main() {
     use tiny_http::{Response, Server};
 
     let server = Server::https(
         "0.0.0.0:8000",
-        tiny_http::SslConfig {
-            certificate: include_bytes!("ssl-cert.pem").to_vec(),
-            private_key: include_bytes!("ssl-key.pem").to_vec(),
-        },
+        tiny_http::SslConfig::new(
+            include_bytes!("ssl-cert.pem").to_vec(),
+            include_bytes!("ssl-key.pem").to_vec(),
+        ),
     )
     .unwrap();
 
@@ -35,8 +43,8 @@ fn main() {
         );
 
         let response = Response::from_string("hello world");
-        request
-            .respond(response)
-            .unwrap_or(println!("Failed to respond to request"));
+        if let Err(err) = request.respond(response) {
+            eprintln!("Failed to respond to request: {err:?}");
+        }
     }
 }

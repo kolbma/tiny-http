@@ -1,6 +1,4 @@
-extern crate rustc_serialize;
-extern crate sha1_smol;
-extern crate tiny_http;
+#![allow(missing_docs, unused_crate_dependencies)]
 
 use std::io::Cursor;
 use std::io::Read;
@@ -12,7 +10,7 @@ fn home_page(port: u16) -> tiny_http::Response<Cursor<Vec<u8>>> {
     tiny_http::Response::from_string(format!(
         "
         <script type=\"text/javascript\">
-        var socket = new WebSocket(\"ws://localhost:{}/\", \"ping\");
+        var socket = new WebSocket(\"ws://localhost:{port}/\", \"ping\");
 
         function send(data) {{
             socket.send(data);
@@ -28,14 +26,14 @@ fn home_page(port: u16) -> tiny_http::Response<Cursor<Vec<u8>>> {
         <button onclick=\"send(document.getElementById('msg').value)\">Send</button></p>
         <p>Received: </p>
         <p id=\"result\"></p>
-    ",
-        port
+    "
     ))
     .with_header(
         "Content-type: text/html"
             .parse::<tiny_http::Header>()
             .unwrap(),
     )
+    .unwrap()
 }
 
 /// Turns a Sec-WebSocket-Key into a Sec-WebSocket-Accept.
@@ -65,43 +63,32 @@ fn main() {
     let port = server.server_addr().to_ip().unwrap().port();
 
     println!("Server started");
-    println!(
-        "To try this example, open a browser to http://localhost:{}/",
-        port
-    );
+    println!("To try this example, open a browser to http://localhost:{port}/");
 
     for request in server.incoming_requests() {
         // we are handling this websocket connection in a new task
-        spawn(move || {
+        let _ = spawn(move || {
             // checking the "Upgrade" header to check that it is a websocket
-            match request
+            if request
                 .headers()
                 .iter()
-                .find(|h| h.field.equiv(&"Upgrade"))
-                .and_then(|hdr| {
-                    if hdr.value == "websocket" {
-                        Some(hdr)
-                    } else {
-                        None
-                    }
-                }) {
-                None => {
-                    // sending the HTML page
-                    request.respond(home_page(port)).expect("Responded");
-                    return;
-                }
-                _ => (),
-            };
+                .any(|h| h.field.equiv("Upgrade") && h.value == "websocket")
+            {
+                // sending the HTML page
+                request.respond(home_page(port)).expect("Responded");
+                return;
+            }
 
             // getting the value of Sec-WebSocket-Key
-            let key = match request
-                .headers()
-                .iter()
-                .find(|h| h.field.equiv(&"Sec-WebSocket-Key"))
-                .map(|h| h.value.clone())
-            {
+            let key = match request.headers().iter().find_map(|h| {
+                if h.field.equiv("Sec-WebSocket-Key") {
+                    Some(h.value.clone())
+                } else {
+                    None
+                }
+            }) {
                 None => {
-                    let response = tiny_http::Response::new_empty(tiny_http::StatusCode(400));
+                    let response = tiny_http::Response::empty(400);
                     request.respond(response).expect("Responded");
                     return;
                 }
@@ -109,19 +96,18 @@ fn main() {
             };
 
             // building the "101 Switching Protocols" response
-            let response = tiny_http::Response::new_empty(tiny_http::StatusCode(101))
-                .with_header("Upgrade: websocket".parse::<tiny_http::Header>().unwrap())
-                .with_header("Connection: Upgrade".parse::<tiny_http::Header>().unwrap())
-                .with_header(
+            let response = tiny_http::Response::empty(101)
+                .with_headers(Vec::from([
+                    "Upgrade: websocket".parse::<tiny_http::Header>().unwrap(),
+                    "Connection: Upgrade".parse::<tiny_http::Header>().unwrap(),
                     "Sec-WebSocket-Protocol: ping"
                         .parse::<tiny_http::Header>()
                         .unwrap(),
-                )
-                .with_header(
                     format!("Sec-WebSocket-Accept: {}", convert_key(key.as_str()))
                         .parse::<tiny_http::Header>()
                         .unwrap(),
-                );
+                ]))
+                .unwrap();
 
             //
             let mut stream = request.upgrade("websocket", response);
@@ -133,12 +119,12 @@ fn main() {
                     Ok(n) if n >= 1 => {
                         // "Hello" frame
                         let data = [0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f];
-                        stream.write(&data).ok();
-                        stream.flush().ok();
+                        let _ = stream.write(&data);
+                        let _ = stream.flush();
                     }
                     Ok(_) => panic!("eof ; should never happen"),
                     Err(e) => {
-                        println!("closing connection because: {}", e);
+                        eprintln!("closing connection because: {e}");
                         return;
                     }
                 };

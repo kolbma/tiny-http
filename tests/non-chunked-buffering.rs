@@ -1,4 +1,4 @@
-extern crate tiny_http;
+#![allow(unused_crate_dependencies)]
 
 use std::io::{Cursor, Read, Write};
 use std::sync::{
@@ -24,7 +24,7 @@ where
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self.inner.read(buf) {
             Ok(read) => {
-                self.position.fetch_add(read, AcqRel);
+                let _ = self.position.fetch_add(read, AcqRel);
                 Ok(read)
             }
             e => e,
@@ -88,7 +88,7 @@ fn responding_to_non_consuming_client() {
     let position = reader.position.clone();
 
     // Client still connected, but not reading anything
-    std::thread::spawn(move || {
+    let _ = std::thread::spawn(move || {
         request
             .respond(identity_served(&mut reader))
             .expect("Successful");

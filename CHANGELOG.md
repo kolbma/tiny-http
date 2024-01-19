@@ -1,5 +1,39 @@
 # Changes
 
+## Unreleased
+* MSRV is 1.60 for --no-default-features --features log and/or (ssl-native-tls or ssl)
+  - For successful build of feature ssl-rustls Rust version >=1.61 is required
+  - For successful build of feature socket2 (default) Rust version >=1.63 is required
+
+* CI is testing features with different minimum Rust versions
+
+* Fix issue #252: Content-Length header has been used for memory allocation
+
+* HTTP Header limits introduced
+
+  - 414 URI Too Long when request url is over 2048 bytes
+  - 431 Request Header Fields Too Large when line is over 2048 bytes
+  - complete header is limited to 8192 bytes
+
+* BREAKING CHANGE: Response-header-methods return a Result with HeaderError if the header got not added.
+
+  Affected methods are add_header(), add_headers(), filter_header(), with_header(), with_headers().  
+  Response.filter_header(HeaderField) prevents the HeaderField to be sent in the Response.
+
+* BREAKING CHANGE: ServerConfig has field ssl for SslConfig only when any ssl feature is enabled.
+
+* New feature _native-tls_
+
+  _native-tls_ is a crate that will pick the platforms native TLS implementation depending on the chosen build target.
+
+* _log_ feature can disable log support
+
+* Update rustls to v0.22, rustls-pemfile to v2.0
+
+* New example _router_ how route and response handling could be implemented
+
+* New example _socket-config-server_ to configure socket
+
 ## 0.12.0
 * Bumped the minimum compiler version tested by CI to 1.56 - this is necessary due to an increasing number of dependencies
   introducing Cargo manifest features only supported on newer versions of Rust.

@@ -7,7 +7,7 @@ enum Control<T> {
     Unblock,
 }
 
-pub struct MessagesQueue<T>
+pub(crate) struct MessagesQueue<T>
 where
     T: Send,
 {
@@ -19,7 +19,7 @@ impl<T> MessagesQueue<T>
 where
     T: Send,
 {
-    pub fn with_capacity(capacity: usize) -> Arc<MessagesQueue<T>> {
+    pub(crate) fn with_capacity(capacity: usize) -> Arc<MessagesQueue<T>> {
         Arc::new(MessagesQueue {
             queue: Mutex::new(VecDeque::with_capacity(capacity)),
             condvar: Condvar::new(),
@@ -27,29 +27,29 @@ where
     }
 
     /// Pushes an element to the queue.
-    pub fn push(&self, value: T) {
+    pub(crate) fn push(&self, value: T) {
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(Control::Elem(value));
         self.condvar.notify_one();
     }
 
     /// Unblock one thread stuck in pop loop.
-    pub fn unblock(&self) {
+    pub(crate) fn unblock(&self) {
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(Control::Unblock);
         self.condvar.notify_one();
     }
 
     /// Pops an element. Blocks until one is available.
-    /// Returns None in case unblock() was issued.
-    pub fn pop(&self) -> Option<T> {
+    /// Returns None in case `unblock()` was issued.
+    pub(crate) fn pop(&self) -> Option<T> {
         let mut queue = self.queue.lock().unwrap();
 
         loop {
             match queue.pop_front() {
                 Some(Control::Elem(value)) => return Some(value),
                 Some(Control::Unblock) => return None,
-                None => (),
+                None => {}
             }
 
             queue = self.condvar.wait(queue).unwrap();
@@ -57,7 +57,7 @@ where
     }
 
     /// Tries to pop an element without blocking.
-    pub fn try_pop(&self) -> Option<T> {
+    pub(crate) fn try_pop(&self) -> Option<T> {
         let mut queue = self.queue.lock().unwrap();
         match queue.pop_front() {
             Some(Control::Elem(value)) => Some(value),
@@ -67,15 +67,15 @@ where
 
     /// Tries to pop an element without blocking
     /// more than the specified timeout duration
-    /// or unblock() was issued
-    pub fn pop_timeout(&self, timeout: Duration) -> Option<T> {
+    /// or `unblock()` was issued
+    pub(crate) fn pop_timeout(&self, timeout: Duration) -> Option<T> {
         let mut queue = self.queue.lock().unwrap();
         let mut duration = timeout;
         loop {
             match queue.pop_front() {
                 Some(Control::Elem(value)) => return Some(value),
                 Some(Control::Unblock) => return None,
-                None => (),
+                None => {}
             }
             let now = Instant::now();
             let (next_queue, result) = self.condvar.wait_timeout(queue, timeout).unwrap();
@@ -84,7 +84,7 @@ where
             duration = if duration > sleep_time {
                 duration - sleep_time
             } else {
-                Duration::from_millis(0)
+                Duration::ZERO
             };
             if result.timed_out()
                 || (duration.as_secs() == 0 && duration.subsec_nanos() < 1_000_000)

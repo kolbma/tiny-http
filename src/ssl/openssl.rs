@@ -65,9 +65,9 @@ impl Write for OpenSslStream {
 pub(crate) struct OpenSslContext(openssl::ssl::SslContext);
 
 impl OpenSslContext {
-    pub fn from_pem(
-        certificates: Vec<u8>,
-        private_key: Zeroizing<Vec<u8>>,
+    pub(crate) fn from_pem(
+        certificates: &[u8],
+        private_key: &Zeroizing<Vec<u8>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         use openssl::pkey::PKey;
         use openssl::ssl::{self, SslVerifyMode};
@@ -75,7 +75,7 @@ impl OpenSslContext {
 
         let mut ctx = openssl::ssl::SslContext::builder(ssl::SslMethod::tls())?;
         ctx.set_cipher_list("DEFAULT")?;
-        let certificate_chain = X509::stack_from_pem(&certificates)?;
+        let certificate_chain = X509::stack_from_pem(certificates)?;
         if certificate_chain.is_empty() {
             return Err("Couldn't extract certificate chain from config.".into());
         }
@@ -84,7 +84,7 @@ impl OpenSslContext {
         for chain_cert in certificate_chain.into_iter().skip(1) {
             ctx.add_extra_chain_cert(chain_cert)?;
         }
-        let key = PKey::private_key_from_pem(&private_key)?;
+        let key = PKey::private_key_from_pem(private_key)?;
         ctx.set_private_key(&key)?;
         ctx.set_verify(SslVerifyMode::NONE);
         ctx.check_private_key()?;
@@ -92,7 +92,7 @@ impl OpenSslContext {
         Ok(Self(ctx.build()))
     }
 
-    pub fn accept(
+    pub(crate) fn accept(
         &self,
         stream: Connection,
     ) -> Result<OpenSslStream, Box<dyn Error + Send + Sync + 'static>> {
