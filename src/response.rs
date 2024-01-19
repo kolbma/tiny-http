@@ -139,31 +139,30 @@ fn choose_transfer_encoding(
     // parsing the request's TE header
     let user_request = request_headers
         .iter()
-        // finding TE
-        .find(|h| h.field.equiv("TE"))
-        // getting its value
-        .map(|h| h.value.clone())
-        // getting the corresponding TransferEncoding
-        .and_then(|value| {
-            // getting list of requested elements
-            let mut parse = util::parse_header_value(value.as_str()); // TODO: remove conversion
+        // finding TE and get value
+        .find_map(|h| {
+            // getting the corresponding TransferEncoding
+            if h.field.equiv("TE") {
+                // getting list of requested elements
+                let mut parse = util::parse_header_value(h.value.as_str()); // TODO: remove conversion
 
-            // sorting elements by most priority
-            parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+                // sorting elements by most priority
+                parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
 
-            // trying to parse each requested encoding
-            for value in parse {
-                // q=0 are ignored
-                if value.1 <= 0.0 {
-                    continue;
-                }
+                // trying to parse each requested encoding
+                for value in parse {
+                    // q=0 are ignored
+                    if value.1 <= 0.0 {
+                        continue;
+                    }
 
-                if let Ok(te) = TransferEncoding::from_str(value.0) {
-                    return Some(te);
+                    if let Ok(te) = TransferEncoding::from_str(value.0) {
+                        return Some(te);
+                    }
                 }
             }
 
-            // encoding not found
+            // No transfer encoding found
             None
         });
 
