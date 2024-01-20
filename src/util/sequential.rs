@@ -1,5 +1,4 @@
-use std::io::Result as IoResult;
-use std::io::{Read, Write};
+use std::io::{Read, Result as IoResult, Write};
 
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Receiver, Sender};
@@ -156,8 +155,9 @@ where
                 let _ = self.next.send(reader);
             }
             SequentialReaderInner::Waiting(recv) => {
-                let reader = recv.recv().unwrap();
-                let _ = self.next.send(reader);
+                if let Ok(reader) = recv.recv() {
+                    let _ = self.next.send(reader);
+                }
             }
             SequentialReaderInner::Empty => (),
         }
