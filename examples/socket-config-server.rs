@@ -39,4 +39,6 @@ fn main() -> Result<(), std::io::Error> {
 }
 
 #[cfg(not(feature = "socket2"))]
-fn main() {}
+fn main() {
+    eprintln!("socket-config-server example needs feature \"socket2\"");
+}
