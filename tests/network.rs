@@ -1,56 +1,115 @@
 #![allow(unused_crate_dependencies)]
 
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream};
+use std::net::TcpStream;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tiny_http::ServerConfig;
+use tiny_http::{HttpVersion, ServerConfig};
 
 #[allow(dead_code)]
 mod support;
 
-#[test]
-fn connection_close_header() {
+fn connection_close(v: HttpVersion) {
     let mut client = support::new_client_to_hello_world_server();
 
-    write!(client, "GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n").unwrap();
-    thread::sleep(Duration::from_millis(1000));
+    if v == HttpVersion::Version1_1 {
+        write!(client, "GET / HTTP/{v}\r\nConnection: keep-alive\r\n\r\n").unwrap();
+        thread::sleep(Duration::from_millis(100));
 
-    write!(client, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n").unwrap();
+        write!(client, "GET / HTTP/{v}\r\nConnection: close\r\n\r\n").unwrap();
+    } else {
+        write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n").unwrap();
+    }
 
-    // if the connection was not closed, this will err with timeout
-    // client.set_keepalive(Some(1)).unwrap(); FIXME: reenable this
-    let mut out = Vec::new();
-    let _ = client.read_to_end(&mut out).unwrap();
+    let mut out = String::new();
+    let _ = client.read_to_string(&mut out).unwrap();
+
+    assert!(out.contains("hello world"), "out: {}", out);
+
+    client
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+
+    let result = write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n");
+    assert!(result.is_err(), "server didn't close connection");
+
+    let result = client.read_to_end(&mut Vec::new());
+    assert!(
+        result.is_ok() && result.unwrap() == 0,
+        "client socket closed by timeout"
+    );
 }
 
 #[test]
-fn http_1_0_connection_close() {
-    let mut client = support::new_client_to_hello_world_server();
-
-    write!(client, "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n").unwrap();
-
-    // if the connection was not closed, this will err with timeout
-    // client.set_keepalive(Some(1)).unwrap(); FIXME: reenable this
-    let mut out = Vec::new();
-    let _ = client.read_to_end(&mut out).unwrap();
+fn connection_close_http_1_0() {
+    connection_close(HttpVersion::Version1_0);
 }
 
 #[test]
-fn detect_connection_closed() {
-    let mut client = support::new_client_to_hello_world_server();
+fn connection_close_http_1_1() {
+    connection_close(HttpVersion::Version1_0);
+}
 
-    write!(client, "GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n").unwrap();
-    thread::sleep(Duration::from_millis(1000));
+fn connection_close_socket_detect(v: HttpVersion) {
+    let timeout = Duration::from_millis(100);
 
-    client.shutdown(Shutdown::Write).unwrap();
+    let (server, mut client) = support::new_server_client_with_cfg(&tiny_http::SocketConfig {
+        read_timeout: timeout,
+        write_timeout: timeout,
+        ..tiny_http::SocketConfig::default()
+    });
 
-    // if the connection was not closed, this will err with timeout
-    // client.set_keepalive(Some(1)).unwrap(); FIXME: reenable this
-    let mut out = Vec::new();
-    let _ = client.read_to_end(&mut out).unwrap();
+    let _ = thread::spawn(move || {
+        let inner_timeout = Duration::from_millis(5);
+
+        write!(client, "GET / HTTP/{v}").unwrap();
+        thread::sleep(inner_timeout);
+        client.flush().unwrap();
+        writeln!(client, "\r").unwrap();
+        thread::sleep(inner_timeout);
+
+        write!(client, "Host: localhost\r\n").unwrap();
+        thread::sleep(inner_timeout);
+
+        write!(client, "Content-Length: 11\r\n\r").unwrap();
+        thread::sleep(inner_timeout);
+        writeln!(client).unwrap();
+        client.flush().unwrap();
+
+        write!(client, "hello ").unwrap();
+        client.flush().unwrap();
+
+        thread::sleep(25 * inner_timeout); // should be read timeout in server
+
+        write!(client, "world\r\n").unwrap();
+        client.flush().unwrap();
+
+        // client dropped and socket closed
+    });
+
+    let now = Instant::now();
+    let result = server.recv();
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("unavailable"), "err: {:?}", err);
+    let elaps = now.elapsed();
+    assert!(
+        elaps > timeout && elaps < timeout + Duration::from_millis(100),
+        "elaps: {}",
+        elaps.as_millis()
+    );
+}
+
+#[test]
+fn connection_close_socket_detect_http_1_0() {
+    connection_close_socket_detect(HttpVersion::Version1_0);
+}
+
+#[test]
+fn connection_close_socket_detect_http_1_1() {
+    connection_close_socket_detect(HttpVersion::Version1_1);
 }
 
 #[test]
@@ -98,7 +157,7 @@ fn pipelining_test() {
     // client.set_keepalive(Some(2)).unwrap(); FIXME: reenable this
     let mut data = String::new();
     let _ = client.read_to_string(&mut data).unwrap();
-    assert_eq!(data.split("hello world").count(), 4);
+    assert_eq!(data.split("hello world").count(), 4, "data:\r\n{data}");
 }
 
 #[test]
@@ -182,114 +241,6 @@ fn no_transfer_encoding_on_204() {
 
     assert!(content.starts_with("HTTP/1.1 204"));
     assert!(!content.contains("Transfer-Encoding: chunked"));
-}
-
-#[test]
-#[cfg(feature = "socket2")]
-fn connection_timeout() -> Result<(), std::io::Error> {
-    use std::time::{Duration, Instant};
-    use tiny_http::ServerConfig;
-
-    let now = Instant::now();
-
-    let (server, mut client) = {
-        let server = tiny_http::Server::new(&ServerConfig {
-            addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
-            socket_config: tiny_http::SocketConfig {
-                read_timeout: Duration::from_millis(100),
-                write_timeout: Duration::from_millis(100),
-                ..tiny_http::SocketConfig::default()
-            },
-            ..ServerConfig::default()
-        })
-        .unwrap();
-        let port = server.server_addr().to_ip().unwrap().port();
-        let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        (server, client)
-    };
-
-    let _ = thread::spawn(move || {
-        let rq = server.recv_timeout(Duration::from_secs(300));
-        assert!(rq.is_ok(), "req fail: {}", rq.unwrap_err());
-
-        let rq = rq.unwrap();
-        assert!(rq.is_some());
-        let rq = rq.unwrap();
-
-        let resp = tiny_http::Response::empty(tiny_http::StatusCode(204));
-        rq.respond(resp).unwrap();
-    });
-
-    write!(client, "GET / HTTP/1.1\r\n\r\n")?;
-
-    let mut content = String::new();
-    let _ = client.read_to_string(&mut content).unwrap();
-    assert!(content.starts_with("HTTP/1.1 204"));
-
-    thread::sleep(Duration::from_millis(200));
-
-    let err = write!(
-        client,
-        "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
-    );
-    assert!(err.is_ok());
-
-    let elaps = now.elapsed();
-    assert!(
-        elaps > Duration::from_millis(230) && elaps < Duration::from_millis(320),
-        "elaps: {}",
-        elaps.as_millis()
-    );
-
-    Ok(())
-}
-
-#[test]
-#[cfg(feature = "socket2")]
-fn connection_timeout_wait_check() -> Result<(), std::io::Error> {
-    use std::time::{Duration, Instant};
-    use tiny_http::ServerConfig;
-
-    let now = Instant::now();
-
-    let (server, mut client) = {
-        let server = tiny_http::Server::new(&ServerConfig {
-            addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0")?,
-            socket_config: tiny_http::SocketConfig {
-                read_timeout: Duration::from_millis(250),
-                write_timeout: Duration::from_millis(250),
-                ..tiny_http::SocketConfig::default()
-            },
-            ..ServerConfig::default()
-        })
-        .unwrap();
-        let port = server.server_addr().to_ip().unwrap().port();
-        let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        (server, client)
-    };
-
-    let _ = thread::spawn(move || {
-        let rq = server.recv_timeout(Duration::from_secs(300));
-        assert!(rq.is_err());
-    });
-
-    // make sure it is waiting longer than server timeouts
-    thread::sleep(Duration::from_millis(300));
-
-    let err = write!(
-        client,
-        "GET / HTTP/1.1\r\nHost: localhost\r\nTE: chunked\r\nConnection: close\r\n\r\n"
-    );
-    assert!(err.is_ok());
-
-    let elaps = now.elapsed();
-    assert!(
-        elaps > Duration::from_millis(300) && elaps < Duration::from_millis(330),
-        "elaps: {}",
-        elaps.as_millis()
-    );
-
-    Ok(())
 }
 
 #[test]
