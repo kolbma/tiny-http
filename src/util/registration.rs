@@ -13,6 +13,11 @@ impl<'a> Registration<'a> {
         let _ = nb.fetch_add(1, Ordering::Release);
         Self { nb }
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn value(&self) -> usize {
+        self.nb.load(Ordering::Relaxed)
+    }
 }
 
 impl Drop for Registration<'_> {
@@ -30,6 +35,11 @@ impl ArcRegistration {
     pub(crate) fn new(nb: Arc<AtomicUsize>) -> Self {
         let _ = nb.fetch_add(1, Ordering::Release);
         Self { nb }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn value(&self) -> usize {
+        self.nb.load(Ordering::Relaxed)
     }
 }
 
