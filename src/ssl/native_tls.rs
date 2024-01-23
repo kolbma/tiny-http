@@ -1,5 +1,5 @@
-use crate::connection::Connection;
 use crate::util::refined_tcp_stream::Stream as RefinedStream;
+use crate::ConnectionStream;
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr};
@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 ///
 /// Uses an internal Mutex to permit disparate reader & writer threads to access the stream independently.
 #[derive(Clone)]
-pub(crate) struct NativeTlsStream(Arc<Mutex<native_tls::TlsStream<Connection>>>);
+pub(crate) struct NativeTlsStream(Arc<Mutex<native_tls::TlsStream<ConnectionStream>>>);
 
 // These struct methods form the implict contract for swappable TLS implementations
 impl NativeTlsStream {
@@ -70,7 +70,7 @@ impl NativeTlsContext {
 
     pub(crate) fn accept(
         &self,
-        stream: Connection,
+        stream: ConnectionStream,
     ) -> Result<NativeTlsStream, Box<dyn Error + Send + Sync + 'static>> {
         let stream = self.0.accept(stream)?;
         Ok(NativeTlsStream(Arc::new(Mutex::new(stream))))

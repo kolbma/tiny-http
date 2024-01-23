@@ -1,5 +1,5 @@
-use crate::connection::Connection;
 use crate::util::refined_tcp_stream::Stream as RefinedStream;
+use crate::ConnectionStream;
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr};
@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 ///
 /// Uses an internal Mutex to permit disparate reader & writer threads to access the stream independently.
 pub(crate) struct RustlsStream(
-    Arc<Mutex<rustls::StreamOwned<rustls::ServerConnection, Connection>>>,
+    Arc<Mutex<rustls::StreamOwned<rustls::ServerConnection, ConnectionStream>>>,
 );
 
 impl RustlsStream {
@@ -108,7 +108,7 @@ impl RustlsContext {
 
     pub(crate) fn accept(
         &self,
-        stream: Connection,
+        stream: ConnectionStream,
     ) -> Result<RustlsStream, Box<dyn Error + Send + Sync + 'static>> {
         let connection = rustls::ServerConnection::new(self.0.clone())?;
         Ok(RustlsStream(Arc::new(Mutex::new(
