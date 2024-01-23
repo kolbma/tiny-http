@@ -270,7 +270,7 @@ mod tests {
                     (IDLE_TIME + Duration::from_millis(20)).as_millis() as u64,
                 );
             }));
-            thread::sleep(Duration::from_micros(250));
+            thread::sleep(Duration::from_micros(25));
         }
 
         for n in (MIN_THREADS + 2)..=(MIN_THREADS + 2) {
@@ -278,7 +278,7 @@ mod tests {
                 #[allow(clippy::cast_possible_truncation)]
                 f(n, 10);
             }));
-            thread::sleep(Duration::from_micros(250));
+            thread::sleep(Duration::from_micros(25));
         }
 
         let dur = IDLE_TIME + Duration::from_millis(15);
