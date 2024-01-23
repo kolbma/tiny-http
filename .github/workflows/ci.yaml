@@ -15,6 +15,7 @@ jobs:
           - ''
         features-1-63:
           - ''
+          - --features content-type
           - --features log
           - --features socket2
           - --features ssl-openssl
@@ -45,6 +46,7 @@ jobs:
           - --no-default-features
         features-1-61:
           - ''
+          - --features content-type
           - --features log
           - --features ssl-openssl
           - --features ssl-rustls
@@ -74,6 +76,7 @@ jobs:
           - --no-default-features
         features-1-60:
           - ''
+          - --features content-type
           - --features log
           - --features ssl-openssl
           - --features ssl-native-tls
@@ -102,6 +105,7 @@ jobs:
           - ''
         features:
           - ''
+          - --features content-type
           - --features log
           - --features socket2
           - --features ssl-openssl
@@ -132,6 +136,7 @@ jobs:
           - '1.60'
         features:
           - ''
+          - content-type
           - ssl-native-tls
           - ssl
     steps:
@@ -164,6 +169,7 @@ jobs:
           - '1.60'
         features:
           - ''
+          - content-type
           - log
     steps:
       - uses: actions/checkout@v4
@@ -195,6 +201,7 @@ jobs:
           - '1.61'
         features:
           - ''
+          - content-type
           - log
     steps:
       - uses: actions/checkout@v4
@@ -226,6 +233,7 @@ jobs:
           - '1.63'
         features:
           - ''
+          - content-type
           - log
           - ssl-native-tls
           - ssl-rustls
@@ -260,6 +268,7 @@ jobs:
           - '1.60'
         features:
           - ''
+          - content-type
           - log
     steps:
       - uses: actions/checkout@v4
