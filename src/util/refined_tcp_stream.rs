@@ -2,16 +2,16 @@ use std::io::Result as IoResult;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr};
 
-use crate::connection::Connection;
 #[cfg(any(
     feature = "ssl-openssl",
     feature = "ssl-rustls",
     feature = "ssl-native-tls"
 ))]
 use crate::ssl::SslStream;
+use crate::ConnectionStream;
 
 pub(crate) enum Stream {
-    Http(Connection),
+    Http(ConnectionStream),
     #[cfg(any(
         feature = "ssl-openssl",
         feature = "ssl-rustls",
@@ -34,8 +34,8 @@ impl Clone for Stream {
     }
 }
 
-impl From<Connection> for Stream {
-    fn from(tcp_stream: Connection) -> Self {
+impl From<ConnectionStream> for Stream {
+    fn from(tcp_stream: ConnectionStream) -> Self {
         Stream::Http(tcp_stream)
     }
 }
