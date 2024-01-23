@@ -10,7 +10,6 @@ use ascii::{AsciiChar, AsciiStr, AsciiString};
 use crate::common::{HttpVersion, Method};
 use crate::log;
 use crate::request;
-use crate::request::RequestCreateError;
 use crate::util::ArcRegistration;
 use crate::util::RefinedTcpStream;
 use crate::util::{SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder};
@@ -314,6 +313,7 @@ impl Iterator for ClientConnection {
 
             let mut rq = rq;
 
+            // handle Connection header - see also `[Request::respond]`
             match lowercase {
                 Some(ref val) if val.contains("close") => set_connection_close(self, &mut rq, true),
                 Some(ref val) if val.contains("upgrade") => {
@@ -425,14 +425,12 @@ impl From<ReadError> for IoError {
     }
 }
 
-impl From<(RequestCreateError, HttpVersion)> for ReadError {
-    fn from((err, version): (RequestCreateError, HttpVersion)) -> Self {
+impl From<(request::CreateError, HttpVersion)> for ReadError {
+    fn from((err, version): (request::CreateError, HttpVersion)) -> Self {
         match err {
-            request::RequestCreateError::ContentLength => {
-                ReadError::HttpProtocol(version, 400.into())
-            }
-            request::RequestCreateError::CreationIoError(err) => ReadError::ReadIoError(err),
-            request::RequestCreateError::ExpectationFailed => ReadError::ExpectationFailed(version),
+            request::CreateError::ContentLength => ReadError::HttpProtocol(version, 400.into()),
+            request::CreateError::IoError(err) => ReadError::ReadIoError(err),
+            request::CreateError::Expect => ReadError::ExpectationFailed(version),
         }
     }
 }
