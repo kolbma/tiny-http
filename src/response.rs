@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use httpdate::HttpDate;
 
-use crate::common::{HTTPVersion, Header, HeaderError, StatusCode, HEADER_FORBIDDEN};
+use crate::common::{Header, HeaderError, HttpVersion, StatusCode};
 use crate::HeaderField;
 
 /// Object representing an HTTP response whose purpose is to be given to a `Request`.
@@ -80,7 +80,7 @@ fn build_date_header() -> Header {
 
 fn write_message_header<W>(
     writer: &mut W,
-    http_version: &HTTPVersion,
+    http_version: HttpVersion,
     status_code: StatusCode,
     headers: &[Header],
     filter_headers: &HashSet<HeaderField>,
@@ -91,9 +91,8 @@ where
     // writing status line
     write!(
         writer,
-        "HTTP/{}.{} {} {}\r\n",
-        http_version.0,
-        http_version.1,
+        "{} {} {}\r\n",
+        http_version.header(),
         status_code.0,
         status_code.default_reason_phrase()
     )?;
@@ -117,7 +116,7 @@ where
 fn choose_transfer_encoding(
     status_code: StatusCode,
     request_headers: &[Header],
-    http_version: &HTTPVersion,
+    http_version: HttpVersion,
     entity_length: &Option<usize>,
     has_additional_headers: bool,
     chunked_threshold: usize,
@@ -125,7 +124,7 @@ fn choose_transfer_encoding(
     use crate::util;
 
     // HTTP 1.0 doesn't support other encoding
-    if *http_version <= (1, 0) {
+    if http_version <= HttpVersion::Version1_0 {
         return TransferEncoding::Identity;
     }
 
@@ -267,7 +266,7 @@ where
         let header = header.into();
 
         // ignoring forbidden headers
-        if HEADER_FORBIDDEN.contains(&header.field.as_str().to_ascii_lowercase().as_str()) {
+        if Header::is_modifieable(&header.field) {
             return Err(HeaderError);
         }
 
@@ -326,7 +325,7 @@ where
         H: Into<HeaderField>,
     {
         let header_field: HeaderField = header_field.into();
-        if HEADER_FORBIDDEN.contains(&header_field.as_str().to_ascii_lowercase().as_str())
+        if Header::is_modifieable(&header_field)
             || header_field.as_str().to_ascii_lowercase().as_str() == "date"
         {
             return Err(HeaderError);
@@ -418,7 +417,7 @@ where
     pub fn raw_print<W: Write>(
         mut self,
         mut writer: W,
-        http_version: &HTTPVersion,
+        http_version: HttpVersion,
         request_headers: &[Header],
         do_not_send_body: bool,
         upgrade: Option<&str>,
@@ -543,6 +542,11 @@ where
     pub fn headers(&self) -> &[Header] {
         &self.headers
     }
+
+    /// List of `Response` headers
+    pub(crate) fn headers_mut(&mut self) -> &mut Vec<Header> {
+        &mut self.headers
+    }
 }
 
 impl<R> Response<R>
@@ -665,7 +669,7 @@ mod tests {
     use crate::{
         common::HeaderError,
         response::{build_date_header, write_message_header},
-        HTTPVersion, Header, HeaderField,
+        Header, HeaderField, HttpVersion,
     };
 
     use super::Response;
@@ -678,7 +682,7 @@ mod tests {
         let mut writer = Vec::new();
         let result = write_message_header(
             &mut writer,
-            &HTTPVersion(1, 1),
+            HttpVersion::Version1_1,
             200.into(),
             &[
                 build_date_header(),
@@ -695,7 +699,7 @@ mod tests {
         let mut writer = Vec::new();
         let result = write_message_header(
             &mut writer,
-            &HTTPVersion(1, 1),
+            HttpVersion::Version1_1,
             200.into(),
             &[
                 build_date_header(),
