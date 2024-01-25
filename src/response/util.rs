@@ -149,6 +149,29 @@ pub(super) fn update_optional_hashset<T, const N: usize>(
     }
 }
 
+/// Sets `header` in `headers` and if `header.field` exists, overwrite it
+#[inline]
+pub(crate) fn update_optional_header(
+    headers: &mut Option<Vec<Header>>,
+    header: Header,
+    always_push: bool,
+) {
+    if let Some(headers) = headers {
+        if always_push {
+            // push always, so multiple entries with same field possible
+            headers.push(header);
+        } else if let Some(type_header) = headers.iter_mut().find(|h| h.field == header.field) {
+            // if the header is already set, overwrite it
+            type_header.value = header.value;
+        } else {
+            // push only if not set
+            headers.push(header);
+        }
+    } else {
+        *headers = Some(Vec::from([header]));
+    }
+}
+
 /// preparing headers for transfer
 #[inline]
 pub(super) fn update_te_headers(
