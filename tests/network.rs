@@ -309,3 +309,96 @@ fn server_connection_limit_test() {
     thread::sleep(Duration::from_millis(500));
     assert_eq!(server.num_connections(), 0);
 }
+
+#[test]
+fn supported_http_versions_test() {
+    fn assert_contains(s: u16, v: &str, content: &mut String) {
+        assert!(
+            content.contains(&format!("HTTP/{v} {s}")),
+            "v: {} content: {}",
+            v,
+            content
+        );
+        content.clear();
+    }
+
+    fn check_client_close(client: TcpStream, content: &str) -> TcpStream {
+        if content.contains("HTTP/1.0") || content.to_lowercase().contains("connection: close") {
+            let client = support::new_client_to_hello_world_server();
+            let _ = client.set_read_timeout(Some(Duration::from_millis(100)));
+            client
+        } else {
+            client
+        }
+    }
+
+    let mut client = support::new_client_to_hello_world_server();
+    let _ = client.set_read_timeout(Some(Duration::from_millis(100)));
+
+    let mut content = String::new();
+
+    write!(client, "GET / HTTP/0.9\r\nHost: localhost\r\n\r\n").unwrap();
+    let _ = client.flush();
+
+    let _ = client.read_to_string(&mut content);
+    client = check_client_close(client, &content);
+    assert_contains(200, "0.9", &mut content);
+
+    for v in ["1.0", "1.1"] {
+        write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n").unwrap();
+        let _ = client.flush();
+
+        let _ = client.read_to_string(&mut content);
+        client = check_client_close(client, &content);
+        assert_contains(200, v, &mut content);
+    }
+
+    write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    let _ = client.flush();
+
+    let _ = client.read_to_string(&mut content);
+    client = check_client_close(client, &content);
+    assert_contains(200, "1.1", &mut content);
+
+    write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let _ = client.flush();
+
+    let _ = client.read_to_string(&mut content);
+    client = check_client_close(client, &content);
+    assert_contains(200, "1.1", &mut content);
+
+    write!(
+        client,
+        "GET / HTTP/1.0\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"
+    )
+    .unwrap();
+    let _ = client.flush();
+
+    let _ = client.read_to_string(&mut content);
+    assert_contains(200, "1.1", &mut content);
+
+    write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let _ = client.flush();
+
+    let _ = client.read_to_string(&mut content);
+    client = check_client_close(client, &content);
+    assert_contains(200, "1.1", &mut content);
+
+    for v in ["2.0", "3.0", "2.9", "4.0"] {
+        write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n").unwrap();
+        let _ = client.flush();
+
+        let _ = client.read_to_string(&mut content);
+        assert!(!content.contains(&format!("HTTP/{v} 200")), "v: {}", v);
+        client = check_client_close(client, &content);
+        assert_contains(505, "1.0", &mut content);
+    }
+}
