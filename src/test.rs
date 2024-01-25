@@ -42,13 +42,13 @@ use std::str::FromStr;
 #[derive(Debug)]
 pub struct TestRequest {
     body: &'static str,
+    headers: Vec<Header>,
+    http_version: HttpVersion,
+    method: Method,
+    path: String,
     remote_addr: SocketAddr,
     // true if HTTPS, false if HTTP
     secure: bool,
-    method: Method,
-    path: String,
-    http_version: HttpVersion,
-    headers: Vec<Header>,
 }
 
 impl From<TestRequest> for Request {
@@ -83,12 +83,12 @@ impl Default for TestRequest {
     fn default() -> Self {
         TestRequest {
             body: "",
-            remote_addr: "127.0.0.1:23456".parse().unwrap(),
-            secure: false,
+            headers: Vec::new(),
+            http_version: HttpVersion::Version1_1,
             method: Method::Get,
             path: "/".to_string(),
-            http_version: HttpVersion::Version1_1,
-            headers: Vec::new(),
+            remote_addr: "127.0.0.1:23456".parse().unwrap(),
+            secure: false,
         }
     }
 }
