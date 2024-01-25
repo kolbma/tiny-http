@@ -2,6 +2,8 @@ use std::{convert::TryFrom, fmt};
 
 use ascii::AsciiStr;
 
+const HTTP_VERSION_HEADER: &[&str] = &["HTTP/0.9", "HTTP/1.0", "HTTP/1.1", "HTTP/2.0", "HTTP/3.0"];
+
 /// HTTP/{version} Request Version (HTTP/1.0 or HTTP/1.1)
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum HttpVersion {
@@ -20,8 +22,9 @@ pub enum HttpVersion {
 impl HttpVersion {
     /// Http version in header format (e.g. HTTP/1.1)
     #[must_use]
-    pub fn header(&self) -> String {
-        "HTTP/".to_string() + &self.to_string()
+    #[inline]
+    pub const fn header(&self) -> &'static str {
+        HTTP_VERSION_HEADER[(*self) as usize]
     }
 }
 
