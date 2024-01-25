@@ -109,7 +109,7 @@ pub use common::{
 };
 use connection_stream::ConnectionStream;
 pub use request::{ReadWrite, Request};
-pub use response::{Response, ResponseBox};
+pub use response::Response;
 pub use server_config::ServerConfig;
 use server_config::CONNECTION_LIMIT_SLEEP_DURATION;
 pub use socket_config::SocketConfig;
@@ -128,7 +128,7 @@ mod common;
 mod connection_stream;
 mod log;
 mod request;
-mod response;
+pub mod response;
 mod server_config;
 mod socket_config;
 mod socket_listener;
