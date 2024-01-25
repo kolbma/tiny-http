@@ -133,7 +133,6 @@ pub(crate) fn new_client_to_hello_world_server_2(
 /// Server responds with data sent before.
 ///
 /// The server will automatically close after 3 seconds.
-#[cfg(feature = "content-type")]
 pub(crate) fn new_client_to_echo_server() -> TcpStream {
     new_client_to_echo_server_2(None, None)
 }
@@ -143,7 +142,6 @@ pub(crate) fn new_client_to_echo_server() -> TcpStream {
 /// Server responds with data sent before.
 ///
 /// The server will automatically close after `timeout_ms` milliseconds or 3 seconds.
-#[cfg(feature = "content-type")]
 pub(crate) fn new_client_to_echo_server_2(
     timeout_ms: Option<u64>,
     keep_alive_idle_sec: Option<u64>,
@@ -164,8 +162,11 @@ pub(crate) fn new_client_to_echo_server_2(
                 if *rq.method() == tiny_http::Method::Post {
                     let mut response = tiny_http::Response::from_string("");
 
-                    if let Some(content_type) = rq.content_type() {
-                        let _ = response.add_header(tiny_http::Header::from(content_type));
+                    #[cfg(feature = "content-type")]
+                    {
+                        if let Some(content_type) = rq.content_type() {
+                            let _ = response.add_header(tiny_http::Header::from(content_type));
+                        }
                     }
 
                     let mut data = vec![0u8; 2048];

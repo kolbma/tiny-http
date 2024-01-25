@@ -41,7 +41,6 @@ fn basic_hello_world_close_http_1_0() {
 }
 
 #[test]
-#[cfg(feature = "content-type")]
 fn basic_hello_world_data_http_1_0() {
     let mut client = support::new_client_to_echo_server();
 
@@ -74,7 +73,6 @@ fn basic_hello_world_http_1_1() {
 }
 
 #[test]
-#[cfg(feature = "content-type")]
 fn basic_hello_world_data_http_1_1() {
     let mut client = support::new_client_to_echo_server();
 
@@ -92,6 +90,12 @@ fn basic_hello_world_data_http_1_1() {
     assert!(content.contains("hello world"), "{}", content);
     assert!(content.contains("Connection: Keep-Alive"), "{}", content);
     assert!(content.contains("Connection: Close"), "{}", content);
+    #[cfg(feature = "content-type")]
+    assert!(
+        content.contains("Content-Type: text/plain; charset=utf8"),
+        "{}",
+        content
+    );
 }
 
 #[test]
@@ -112,7 +116,6 @@ fn basic_hello_world_close_http_1_1() {
 }
 
 #[test]
-#[cfg(feature = "content-type")]
 fn basic_hello_world_data_close_http_1_1() {
     let mut client = support::new_client_to_echo_server();
 
@@ -127,6 +130,12 @@ fn basic_hello_world_data_close_http_1_1() {
 
     assert!(content.contains("hello world"), "{}", content);
     assert!(!content.contains("Connection: Keep-Alive"), "{}", content);
+    #[cfg(feature = "content-type")]
+    assert!(
+        content.contains("Content-Type: text/plain; charset=utf8"),
+        "{}",
+        content
+    );
 }
 
 #[test]
