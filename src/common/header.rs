@@ -22,7 +22,7 @@ impl Header {
     /// # Examples
     ///
     /// ```
-    /// let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap();
+    /// let header = tiny_http::Header::from_bytes(b"Content-Type", b"text/plain").unwrap();
     /// ```
     #[allow(clippy::result_unit_err)]
     pub fn from_bytes(header: &[u8], value: &[u8]) -> Result<Header, ()> {
