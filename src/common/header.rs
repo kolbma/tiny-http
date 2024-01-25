@@ -104,6 +104,7 @@ impl HeaderField {
 
     /// Get `[HeaderField]` as `&AsciiStr`
     #[must_use]
+    #[inline]
     pub fn as_str(&self) -> &AsciiStr {
         &self.0
     }
