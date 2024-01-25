@@ -263,7 +263,6 @@ fn expect_100_continue() {
         tx.send(()).unwrap();
     });
 
-    // client.set_keepalive(Some(3)).unwrap(); FIXME: reenable this
     let mut content = vec![0; 12];
     client.read_exact(&mut content).unwrap();
     assert!(content[9..].starts_with(b"100")); // 100 status code
@@ -273,6 +272,31 @@ fn expect_100_continue() {
     client.shutdown(Shutdown::Write).unwrap();
 
     rx.recv().unwrap();
+}
+
+#[test]
+fn expect_fail_test() {
+    let (server, client) = support::new_one_server_one_client();
+
+    let mut client = client;
+    write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nExpect: no-continue\r\nContent-Type: text/plain; charset=utf8\r\nContent-Length: 5\r\n\r\n").unwrap();
+    client.flush().unwrap();
+
+    let _ = thread::spawn(move || {
+        let _request = server.recv().unwrap();
+        // no receive handling, doesn't receive a valid request
+    });
+
+    let mut content = vec![0; 12];
+    client.read_exact(&mut content).unwrap();
+    assert!(content[9..].starts_with(b"417")); // 417 Expectation Failed status code
+
+    client.shutdown(Shutdown::Write).unwrap();
+
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content);
+    // no body
+    assert!(content.ends_with("\r\n\r\n"), "content: {}", content);
 }
 
 #[test]
