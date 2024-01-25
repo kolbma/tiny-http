@@ -51,6 +51,22 @@ impl From<ConnectionHeader> for super::Header {
     }
 }
 
+impl TryFrom<&super::Header> for ConnectionHeader {
+    type Error = ();
+
+    fn try_from(header: &super::Header) -> Result<Self, Self::Error> {
+        Self::try_from(header.value.as_str())
+    }
+}
+
+impl TryFrom<super::Header> for ConnectionHeader {
+    type Error = ();
+
+    fn try_from(header: super::Header) -> Result<Self, Self::Error> {
+        Self::try_from(header.value.as_str())
+    }
+}
+
 impl TryFrom<&str> for ConnectionHeader {
     type Error = ();
 
