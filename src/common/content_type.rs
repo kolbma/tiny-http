@@ -36,6 +36,7 @@ pub enum ContentType {
     TextHtml,
     TextJavascript,
     TextPlain,
+    TextPlainUtf8,
     TextXml,
 }
 
@@ -79,6 +80,7 @@ fn content_types() -> &'static HashMap<ContentType, &'static str> {
             (ContentType::TextHtml, "text/html"),
             (ContentType::TextJavascript, "text/javascript"),
             (ContentType::TextPlain, "text/plain"),
+            (ContentType::TextPlainUtf8, "text/plain; charset=utf8"),
             (ContentType::TextXml, "text/xml"),
         ])
     })
@@ -169,11 +171,21 @@ impl TryFrom<&str> for ContentType {
         } else {
             lowercase
         };
-        let field = if let Some((field, _)) = field.split_once(';') {
-            field
-        } else {
-            field
-        };
+
+        if let Some((field, charset)) = field.split_once(';') {
+            if let Some((cfield, charset)) = charset.split_once('=') {
+                if cfield.trim().to_ascii_lowercase() == "charset" {
+                    let charset = charset.trim().to_ascii_lowercase().replace('-', "");
+                    if &charset == "utf8" {
+                        let field = format!("{field}; charset={charset}");
+                        if let Some(ct) = content_type_lookup().get(field.as_str()).copied() {
+                            return Ok(ct);
+                        }
+                    }
+                }
+            }
+            return content_type_lookup().get(field).copied().ok_or(());
+        }
 
         content_type_lookup().get(field).copied().ok_or(())
     }
@@ -209,11 +221,9 @@ mod tests {
     #[test]
     fn content_type_lookup_test() {
         for (k, v) in content_type_lookup() {
-            assert_eq!(
-                *v,
-                ContentType::try_from(*k).unwrap(),
-                "problem: k = {k} v = {v}"
-            );
+            let content_type = ContentType::try_from(*k);
+            assert!(content_type.is_ok(), "problem: k = {} v = {}", k, v);
+            assert_eq!(*v, content_type.unwrap(), "problem: k = {k} v = {v}");
             assert_eq!(*k, <&str>::from(v), "problem: k = {k} v = {v}");
         }
     }
@@ -248,12 +258,32 @@ mod tests {
 
         assert_eq!(
             ContentType::try_from(
-                "Content-Type: text/plain; charset=UTF-8"
+                "Content-Type: text/plain; charset=utf8"
                     .parse::<Header>()
                     .unwrap()
             )
             .unwrap(),
-            ContentType::TextPlain
+            ContentType::TextPlainUtf8
+        );
+
+        assert_eq!(
+            ContentType::try_from(
+                "Content-Type: text/plain; charset=utf-8"
+                    .parse::<Header>()
+                    .unwrap()
+            )
+            .unwrap(),
+            ContentType::TextPlainUtf8
+        );
+
+        assert_eq!(
+            ContentType::try_from(
+                "Content-Type: application/gzip; charset=utf-8"
+                    .parse::<Header>()
+                    .unwrap()
+            )
+            .unwrap(),
+            ContentType::ApplicationGzip
         );
     }
 }
