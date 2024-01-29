@@ -1,3 +1,3 @@
 <?php
 
-echo "hello world!";
+echo "The php cgi request has been successful!";

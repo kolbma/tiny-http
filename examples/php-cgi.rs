@@ -7,42 +7,70 @@ Usage: php-cgi <php-script-path>
 */
 #![allow(unused_crate_dependencies)]
 
-use ascii::AsAsciiStr;
+use std::env;
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::sync::Arc;
+use std::thread;
 
-fn handle(rq: tiny_http::Request, script: &str) {
+use ascii::{AsAsciiStr, AsciiStr};
+use tiny_http::Response;
+
+const PHP_CGI_DEFAULT: &str = "php-cgi";
+#[cfg(unix)]
+const PHP_CGI: &str = "examples/php-cgi.sh";
+#[cfg(windows)]
+const PHP_CGI: &str = "examples/php-cgi.cmd";
+
+fn handle(rq: tiny_http::Request, script: &str) -> Result<(), IoError> {
     use std::io::Write;
     use std::process::Command;
 
-    let php = Command::new("php-cgi")
-        .arg(script)
-        //.stdin(Ignored)
-        //.extra_io(Ignored)
-        .env("AUTH_TYPE", "")
-        .env(
-            "CONTENT_LENGTH",
-            rq.content_length().unwrap_or_default().to_string(),
-        )
-        .env("CONTENT_TYPE", "")
-        .env("GATEWAY_INTERFACE", "CGI/1.1")
-        .env("PATH_INFO", "")
-        .env("PATH_TRANSLATED", "")
-        .env("QUERY_STRING", rq.url())
-        .env("REMOTE_ADDR", rq.remote_addr().unwrap().to_string())
-        .env("REMOTE_HOST", "")
-        .env("REMOTE_IDENT", "")
-        .env("REMOTE_USER", "")
-        .env("REQUEST_METHOD", rq.method().as_str())
-        .env("SCRIPT_NAME", script)
-        .env("SERVER_NAME", "tiny-http php-cgi example")
-        .env("SERVER_PORT", rq.remote_addr().unwrap().to_string())
-        .env("SERVER_PROTOCOL", "HTTP/1.1")
-        .env("SERVER_SOFTWARE", "tiny-http php-cgi example")
-        .output()
-        .unwrap();
+    let mut err = None;
+
+    let php = [PHP_CGI_DEFAULT, PHP_CGI].iter().find_map(|php| {
+        let result = Command::new(php)
+            .arg(script)
+            //.stdin(Ignored)
+            //.extra_io(Ignored)
+            .env("AUTH_TYPE", "")
+            .env(
+                "CONTENT_LENGTH",
+                rq.content_length().unwrap_or_default().to_string(),
+            )
+            .env("CONTENT_TYPE", "")
+            .env("GATEWAY_INTERFACE", "CGI/1.1")
+            .env("PATH_INFO", "")
+            .env("PATH_TRANSLATED", "")
+            .env("QUERY_STRING", rq.url())
+            .env("REMOTE_ADDR", rq.remote_addr().unwrap().to_string())
+            .env("REMOTE_HOST", "")
+            .env("REMOTE_IDENT", "")
+            .env("REMOTE_USER", "")
+            .env("REQUEST_METHOD", rq.method().as_str())
+            .env("SCRIPT_NAME", script)
+            .env("SERVER_NAME", "tiny-http php-cgi example")
+            .env("SERVER_PORT", rq.remote_addr().unwrap().to_string())
+            .env("SERVER_PROTOCOL", "HTTP/1.1")
+            .env("SERVER_SOFTWARE", "tiny-http php-cgi example")
+            .output();
+
+        match result {
+            Ok(php) => Some(php),
+            Err(inner_err) => {
+                err = Some(inner_err);
+                None
+            }
+        }
+    });
+
+    let php = match php {
+        Some(php) => php,
+        None => return Err(err.unwrap()),
+    };
 
     // note: this is not a good implementation
-    // cgi returns the status code in the headers ; also many headers will be missing
-    //  in the response
+    // the headers returned by cgi could be used
+    // also many headers will be missing in the response
     match php.status {
         status if status.success() => {
             let mut writer = rq.into_writer();
@@ -52,42 +80,59 @@ fn handle(rq: tiny_http::Request, script: &str) {
             (write!(writer, "{}", php.stdout.clone().as_ascii_str().unwrap())).unwrap();
 
             writer.flush().unwrap();
+            Ok(())
         }
-        _ => {
-            println!(
-                "Error in script execution: {}",
-                php.stderr.as_ascii_str().unwrap()
-            );
-        }
+        _ => Err(IoError::new(
+            IoErrorKind::Other,
+            "php: ".to_string()
+                + php
+                    .stderr
+                    .as_ascii_str()
+                    .map(AsciiStr::as_str)
+                    .unwrap_or("unknown"),
+        )),
     }
 }
 
 fn main() {
-    use std::env;
-    use std::sync::Arc;
-    use std::thread::spawn;
-
-    let php_script = {
+    let php_script = Arc::new({
         let mut args = env::args();
         if args.len() < 2 {
-            println!("Usage: php-cgi <php-script-path>");
+            eprintln!("Usage: php-cgi <php-script-path>");
             return;
         }
         args.nth(1).unwrap()
-    };
+    });
 
     let server = Arc::new(tiny_http::Server::http("0.0.0.0:9975").unwrap());
-    println!("Now listening on port 9975");
+    let port = server.server_addr().to_ip().unwrap().port();
+    println!("Now listening on http://localhost:{port}/");
 
     let num_cpus = 4; // TODO: dynamically generate this value
+    let mut jhs = Vec::with_capacity(num_cpus);
+
     for _ in 0..num_cpus {
         let server = server.clone();
-        let php_script = php_script.clone();
+        let php_script = Arc::clone(&php_script);
 
-        let _ = spawn(move || {
+        jhs.push(thread::spawn(move || {
             for rq in server.incoming_requests() {
-                handle(rq, &php_script);
+                if rq
+                    .headers()
+                    .iter()
+                    .any(|h| h.field.equiv("Accept") && h.value.as_str().contains("text/html"))
+                {
+                    if let Err(err) = handle(rq, &php_script) {
+                        eprintln!("php error: {err:?}");
+                    }
+                } else {
+                    let _ = rq.respond(Response::from(404));
+                }
             }
-        });
+        }));
+    }
+
+    for jh in jhs {
+        let _ = jh.join();
     }
 }
