@@ -566,12 +566,6 @@ impl Request {
                 ConnectionValue::Close.into(),
                 false,
             );
-        } else if self.http_version == HttpVersion::Version1_1 {
-            response::util::update_optional_header(
-                response.headers_mut(),
-                ConnectionValue::KeepAlive.into(),
-                false,
-            );
         } else if self.connection_header == Some(ConnectionValue::KeepAlive.into()) {
             response::util::update_optional_header(
                 response.headers_mut(),
