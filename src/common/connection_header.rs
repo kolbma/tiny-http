@@ -134,11 +134,11 @@ impl Iterator for ConnectionHeaderIterator<'_> {
 /// HTTP protocol Connection header values
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ConnectionValue {
-    /// Connection: Close
+    /// Connection: close
     Close,
-    /// Connection: Keep-Alive
+    /// Connection: keep-alive
     KeepAlive,
-    /// Connection: Upgrade
+    /// Connection: upgrade
     Upgrade,
 }
 
@@ -157,9 +157,9 @@ impl From<ConnectionValue> for AsciiString {
 impl From<ConnectionValue> for &'static str {
     fn from(value: ConnectionValue) -> Self {
         match value {
-            ConnectionValue::Close => "Close",
-            ConnectionValue::KeepAlive => "Keep-Alive",
-            ConnectionValue::Upgrade => "Upgrade",
+            ConnectionValue::Close => "close",
+            ConnectionValue::KeepAlive => "keep-alive",
+            ConnectionValue::Upgrade => "upgrade",
         }
     }
 }
@@ -269,7 +269,7 @@ mod tests {
         let h: Header = ch.into();
 
         let hs = h.to_string();
-        assert_eq!(&hs, "Connection: Close, Upgrade, Keep-Alive"); // HTTP protocol no sense, but don't check it for performance
+        assert_eq!(&hs, "Connection: close, upgrade, keep-alive"); // HTTP protocol no sense, but don't check it for performance
 
         let ch = ConnectionHeader {
             inner: HashSet::from([ConnectionValue::Close]),
@@ -278,7 +278,7 @@ mod tests {
         let h: Header = ch.into();
 
         let hs = h.to_string();
-        assert_eq!(&hs, "Connection: Close");
+        assert_eq!(&hs, "Connection: close");
 
         let ch = ConnectionHeader {
             inner: HashSet::from([ConnectionValue::KeepAlive, ConnectionValue::Upgrade]),
@@ -287,7 +287,7 @@ mod tests {
         let h: Header = ch.into();
 
         let hs = h.to_string();
-        assert_eq!(&hs, "Connection: Upgrade, Keep-Alive");
+        assert_eq!(&hs, "Connection: upgrade, keep-alive");
 
         let ch = ConnectionHeader {
             inner: HashSet::new(),
