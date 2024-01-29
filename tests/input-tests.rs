@@ -354,8 +354,8 @@ fn custom_content_type_response_header() {
 
 #[test]
 fn too_long_header_field() {
-    let just_ok_buf = String::from_utf8([b'X'; 2048 - 21].to_vec()).unwrap();
-    assert_eq!(just_ok_buf.len(), 2048 - 21);
+    let just_ok_buf = String::from_utf8([b'X'; 2048 - 22].to_vec()).unwrap();
+    assert_eq!(just_ok_buf.len(), 2048 - 22);
 
     let mut client = support::new_client_to_hello_world_server();
 
