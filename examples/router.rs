@@ -44,7 +44,10 @@ fn main() {
         ("GET:/hello", RouteHandler::from(get_hello)),
         ("POST:/echo", RouteHandler::from(post_echo)),
     ]);
-    let server = Server::http("0.0.0.0:3000").unwrap();
+    let server = Server::http("0.0.0.0:9975").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    println!("Now listening on http://localhost:{port}/");
+
     for mut request in server.incoming_requests() {
         let route_key = format!("{}:{}", request.method(), request.url());
         #[allow(clippy::single_match_else)]

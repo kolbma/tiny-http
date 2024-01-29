@@ -9,7 +9,7 @@ use tiny_http::{Response, Server, ServerConfig};
 #[cfg(feature = "socket2")]
 fn main() -> Result<(), std::io::Error> {
     let server = Server::new(&ServerConfig {
-        addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:8000")?,
+        addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:9975")?,
         socket_config: tiny_http::SocketConfig {
             read_timeout: Duration::from_millis(5000),
             write_timeout: Duration::from_millis(5000),
@@ -19,7 +19,8 @@ fn main() -> Result<(), std::io::Error> {
     })
     .unwrap();
 
-    println!("server listening 0.0.0.0:8000");
+    let port = server.server_addr().to_ip().unwrap().port();
+    println!("Now listening on http://localhost:{port}/");
 
     for request in server.incoming_requests() {
         println!(
