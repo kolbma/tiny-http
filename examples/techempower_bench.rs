@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread;
 
 use serde::Serialize;
-use tiny_http::Header;
+use tiny_http::{ConfigListenAddr, Header, HeaderField, LimitsConfig, ServerConfig};
 
 #[derive(Serialize)]
 struct HelloWorldMsg {
@@ -12,14 +12,27 @@ struct HelloWorldMsg {
 }
 
 fn main() {
-    let server = Arc::new(tiny_http::Server::http("127.0.0.1:8082").unwrap());
+    let server = Arc::new(
+        tiny_http::Server::new(&ServerConfig {
+            addr: ConfigListenAddr::IP(vec!["0.0.0.0:8082".parse().unwrap()]),
+            limits: LimitsConfig {
+                connection_limit: 500,
+                header_line_len: 80,
+                ..LimitsConfig::default()
+            },
+            ..ServerConfig::default()
+        })
+        .unwrap(),
+    );
 
     let mut handles = Vec::new();
     let mut response_json = tiny_http::Response::empty(200);
+    let _ = response_json.filter_header("Connection".parse::<HeaderField>().unwrap());
     let _ = response_json.add_header("Content-Type: application/json".parse::<Header>().unwrap());
     let _ = response_json.add_header("Server: t".parse::<Header>().unwrap());
 
     let mut response_text = response_json.clone();
+    let _ = response_text.filter_header("Connection".parse::<HeaderField>().unwrap());
     let _ = response_text.add_header("Content-Type: plain/text".parse::<Header>().unwrap());
 
     for _ in 0..num_cpus::get() {

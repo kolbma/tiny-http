@@ -255,40 +255,11 @@ impl ClientConnection {
         // building the writer for the request
         let writer = self.sink.next().unwrap();
 
-        log::debug!("source-next");
-
         // follow-up for next potential request
         let mut next_header_source = self.source.next().unwrap();
 
-        // log::debug!(
-        //     "next_header_source timeout: {:?} self.next_header_source timeout: {:?}",
-        //     crate::stream_traits::ReadTimeout::read_timeout(&next_header_source),
-        //     crate::stream_traits::ReadTimeout::read_timeout(&self.next_header_source)
-        // );
-
         std::mem::swap(&mut self.next_header_source, &mut next_header_source);
         let source_data = next_header_source; // move to make clear for current swap
-
-        log::debug!("source-swaped");
-        // log::debug!(
-        //     "source_data timeout: {:?} self.next_header_source timeout: {:?}",
-        //     source_data.read_timeout(),
-        //     self.next_header_source.read_timeout()
-        // );
-        // let _ = data_source.set_read_timeout(Some(std::time::Duration::from_secs(300)));
-        // log::debug!(
-        //     "source_data timeout: {:?} self.next_header_source timeout: {:?}",
-        //     source_data.read_timeout(),
-        //     self.next_header_source.read_timeout()
-        // );
-        // let _ = self
-        //     .next_header_source
-        //     .set_read_timeout(Some(std::time::Duration::from_secs(400)));
-        // log::debug!(
-        //     "source_data timeout: {:?} self.next_header_source timeout: {:?}",
-        //     source_data.read_timeout(),
-        //     self.next_header_source.read_timeout()
-        // );
 
         // building the next request
         let request = Request::create(
@@ -387,18 +358,13 @@ impl Iterator for ClientConnection {
             return None;
         }
 
-        let rq_result = self
+        let rq = self
             .read_request()
-            .map_err(|err| self.request_error_handler(err));
-
-        // check if request available
-        let rq = if let Ok(rq) = rq_result {
-            rq
-        } else {
-            self.is_connection_close = true;
-            // return with ReadError
-            return Some(rq_result);
-        };
+            .map_err(|err| {
+                self.is_connection_close = true;
+                self.request_error_handler(err)
+            })
+            .ok()?;
 
         // updating the status of the connection
         let connection_header = rq.headers().iter().find_map(|h| {
