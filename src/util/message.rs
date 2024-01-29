@@ -2,6 +2,7 @@ use std::io::Error as IoError;
 
 use crate::Request;
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Message {
     Error(IoError),
     NewRequest(Request),

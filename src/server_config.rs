@@ -1,10 +1,8 @@
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 
 use crate::ConfigListenAddr;
+use crate::LimitsConfig;
 use crate::SocketConfig;
-
-/// Default connection limit for concurrent connections
-pub(crate) const CONNECTION_LIMIT_DEFAULT: usize = 200;
 
 /// Duration of sleep to check for concurrent connections
 pub(crate) const CONNECTION_LIMIT_SLEEP_DURATION: Duration = Duration::from_millis(25);
@@ -14,8 +12,14 @@ pub(crate) const CONNECTION_LIMIT_SLEEP_DURATION: Duration = Duration::from_mill
 /// # Example
 ///
 /// ```
-/// # use tiny_http::ServerConfig;
-/// let cfg = ServerConfig { connection_limit: 50, ..ServerConfig::default() };
+/// # use tiny_http::{LimitsConfig, ServerConfig};
+/// let cfg = ServerConfig {
+///     limits: LimitsConfig {
+///         connection_limit: 50,
+///         ..LimitsConfig::default()
+///     },
+///     ..ServerConfig::default()
+/// };
 /// ```
 ///
 #[derive(Debug, Clone)]
@@ -23,8 +27,8 @@ pub struct ServerConfig {
     /// The addresses to try to listen to.
     pub addr: ConfigListenAddr,
 
-    /// Connections are limited to `connection_limit`
-    pub connection_limit: usize,
+    /// Configuration of limits [`LimitsConfig`]
+    pub limits: LimitsConfig,
 
     /// Socket configuration
     /// See [SocketConfig]
@@ -43,7 +47,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             addr: ConfigListenAddr::IP(vec![SocketAddr::from_str("127.0.0.1:0").unwrap()]),
-            connection_limit: CONNECTION_LIMIT_DEFAULT,
+            limits: LimitsConfig::default(),
             socket_config: SocketConfig::default(),
             #[cfg(any(
                 feature = "ssl-openssl",

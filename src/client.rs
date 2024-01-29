@@ -2,36 +2,42 @@ use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Read};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult};
 use std::net::SocketAddr;
-#[cfg(feature = "socket2")]
 use std::sync::Arc;
 
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 
 use crate::common::{HttpVersion, Method};
-use crate::request;
 use crate::response::Standard::{
     BadRequest400, ExpectationFailed417, HttpVersionNotSupported505,
-    RequestHeaderFieldsTooLarge431, UriTooLong414,
+    RequestHeaderFieldsTooLarge431, RequestTimeout408, UriTooLong414,
 };
+use crate::util::registration::ArcRegistrationU16;
 use crate::util::{
-    ArcRegistration, RefinedTcpStream, SequentialReader, SequentialReaderBuilder,
-    SequentialWriterBuilder,
+    RefinedTcpStream, SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder,
 };
-use crate::ConnectionHeader;
-use crate::Header;
 use crate::Request;
 #[cfg(feature = "socket2")]
 use crate::SocketConfig;
+use crate::{limits, Header};
 use crate::{log, response};
+use crate::{request, ConnectionHeader};
+use crate::{ConnectionValue, LimitsConfig};
+
+const CR: u8 = b'\r';
+const NL: u8 = b'\n';
+const HEADER_READER_BUF_MAX_IDX: usize = limits::HEADER_READER_BUF_SIZE - 1;
 
 /// A `ClientConnection` is an object that will store a socket to a client
 /// and return Request objects.
 pub(crate) struct ClientConnection {
     /// store registration to count all open ClientConnection
-    _client_counter: ArcRegistration,
+    _client_counter: ArcRegistrationU16,
 
     /// set to true if we know that the previous request is the last one
     is_connection_close: bool,
+
+    /// configuration of limits
+    limits: Arc<LimitsConfig>,
 
     /// Reader to read the next header from
     next_header_source: SequentialReader<BufReader<RefinedTcpStream>>,
@@ -55,12 +61,35 @@ pub(crate) struct ClientConnection {
     source: SequentialReaderBuilder<BufReader<RefinedTcpStream>>,
 }
 
+/// Checks line length limit in `read_next_line()`
+macro_rules! check_line_limit {
+    ($self:ident, $n:expr, $limit:expr) => {
+        if $n >= $limit {
+            log::warn!(
+                "connection [{}] header line limit reached",
+                $self
+                    .remote_addr
+                    .as_ref()
+                    .ok()
+                    .map_or(String::default(), |a| {
+                        a.map_or(String::default(), |a| a.to_string())
+                    })
+            );
+            return Err(ReadError::HttpProtocol(
+                HttpVersion::Version1_0,
+                RequestHeaderFieldsTooLarge431,
+            ));
+        }
+    };
+}
+
 impl ClientConnection {
     /// Creates a new `ClientConnection` that takes ownership of the `TcpStream`.
     pub(crate) fn new(
         write_socket: RefinedTcpStream,
         mut read_socket: RefinedTcpStream,
-        client_counter: ArcRegistration,
+        client_counter: ArcRegistrationU16,
+        limits: &Arc<LimitsConfig>,
         #[cfg(feature = "socket2")] socket_config: &Arc<SocketConfig>,
     ) -> Self {
         let remote_addr = read_socket.peer_addr();
@@ -80,6 +109,7 @@ impl ClientConnection {
         ClientConnection {
             _client_counter: client_counter,
             is_connection_close: false,
+            limits: Arc::clone(limits),
             next_header_source: first_header,
             remote_addr,
             secure,
@@ -98,54 +128,66 @@ impl ClientConnection {
     /// Reads the next line from `self.next_header_source`.
     ///
     /// Reads until `CRLF` is reached. The next read will start
-    ///  at the first byte of the new line.
+    /// at the first byte of the new line.
     ///
     /// The overall header limit is 8K.
     /// The limit per header line is 2K.
     fn read_next_line(&mut self) -> Result<AsciiString, ReadError> {
         let mut buf = Vec::new();
-        let mut prev_byte = 0u8;
+        let mut bytes = [0u8; limits::HEADER_READER_BUF_SIZE];
+        let mut limit = 0;
+        let mut w = 0_usize;
+
+        let reader = self.next_header_source.by_ref();
 
         loop {
-            let byte = self.next_header_source.by_ref().bytes().next();
+            let byte_result = reader.read(&mut bytes[w..=w]);
 
-            let byte = if let Some(byte) = byte {
-                byte?
+            match byte_result {
+                Ok(0) => break,
+                Err(err) => {
+                    return Err(ReadError::ReadIoError(err));
+                }
+                _ => {}
+            }
+
+            if bytes[w] == NL {
+                if w > 0 && bytes[w - 1] == CR {
+                    let n = w - 1;
+                    limit += n;
+                    check_line_limit!(self, limit, self.limits.header_line_len);
+                    buf.extend_from_slice(&bytes[0..n]);
+                } else {
+                    limit += w;
+                    check_line_limit!(self, limit, self.limits.header_line_len);
+                    buf.extend_from_slice(&bytes[0..w]);
+                    log::debug!("missing 2-byte compliant <CR><NL>");
+                }
+                break;
+            }
+
+            if w < HEADER_READER_BUF_MAX_IDX {
+                w += 1;
             } else {
-                log::debug!("unexpected connection abort");
-                return Err(IoError::new(
-                    IoErrorKind::ConnectionAborted,
-                    "unexpected connection abort",
-                )
-                .into());
-            };
-
-            if byte == b'\n' && prev_byte == b'\r' {
-                let _ = buf.pop(); // removing the '\r'
-                return AsciiString::from_ascii(buf).map_err(|_| {
-                    log::debug!("header no ascii");
-                    IoError::new(IoErrorKind::InvalidInput, "header no ascii").into()
-                });
+                limit += w + 1;
+                check_line_limit!(self, limit, self.limits.header_line_len);
+                buf.extend_from_slice(&bytes[0..=w]);
+                w = 0;
             }
-            prev_byte = byte;
-
-            if buf.len() >= 2048 {
-                return Err(ReadError::HttpProtocol(
-                    HttpVersion::Version1_0,
-                    RequestHeaderFieldsTooLarge431,
-                ));
-            }
-
-            buf.push(byte);
         }
+
+        AsciiString::from_ascii(buf).map_err(|_| {
+            log::debug!("header no ascii");
+            ReadError::ReadIoError(IoError::new(IoErrorKind::InvalidInput, "header no ascii"))
+        })
     }
 
     /// Reads a request from the stream.
-    /// Blocks until the header has been read.
+    /// Blocks until the header has been read or `read_timeout` occurred.
     ///
     /// The overall header limit is 8K.
     /// The limit per header line is 2K.
-    fn read(&mut self) -> Result<Request, ReadError> {
+    fn read_request(&mut self) -> Result<Request, ReadError> {
         let (method, path, version, headers) = {
             let mut header_limit_rest = 8_192_usize;
 
@@ -168,6 +210,13 @@ impl ClientConnection {
                         RequestHeaderFieldsTooLarge431,
                     ),
                 )?;
+
+                if line.is_empty() {
+                    return Err(ReadError::ReadIoError(IoError::new(
+                        IoErrorKind::TimedOut,
+                        "no header",
+                    )));
+                }
 
                 parse_request_line(line.trim())?
             };
@@ -206,19 +255,51 @@ impl ClientConnection {
         // building the writer for the request
         let writer = self.sink.next().unwrap();
 
-        // follow-up for next potential request
-        let mut data_source = self.source.next().unwrap();
-        std::mem::swap(&mut self.next_header_source, &mut data_source);
+        log::debug!("source-next");
 
-        // building the next reader
-        let request = crate::request::new_request(
-            self.secure,
+        // follow-up for next potential request
+        let mut next_header_source = self.source.next().unwrap();
+
+        // log::debug!(
+        //     "next_header_source timeout: {:?} self.next_header_source timeout: {:?}",
+        //     crate::stream_traits::ReadTimeout::read_timeout(&next_header_source),
+        //     crate::stream_traits::ReadTimeout::read_timeout(&self.next_header_source)
+        // );
+
+        std::mem::swap(&mut self.next_header_source, &mut next_header_source);
+        let source_data = next_header_source; // move to make clear for current swap
+
+        log::debug!("source-swaped");
+        // log::debug!(
+        //     "source_data timeout: {:?} self.next_header_source timeout: {:?}",
+        //     source_data.read_timeout(),
+        //     self.next_header_source.read_timeout()
+        // );
+        // let _ = data_source.set_read_timeout(Some(std::time::Duration::from_secs(300)));
+        // log::debug!(
+        //     "source_data timeout: {:?} self.next_header_source timeout: {:?}",
+        //     source_data.read_timeout(),
+        //     self.next_header_source.read_timeout()
+        // );
+        // let _ = self
+        //     .next_header_source
+        //     .set_read_timeout(Some(std::time::Duration::from_secs(400)));
+        // log::debug!(
+        //     "source_data timeout: {:?} self.next_header_source timeout: {:?}",
+        //     source_data.read_timeout(),
+        //     self.next_header_source.read_timeout()
+        // );
+
+        // building the next request
+        let request = Request::create(
+            self.limits.content_buffer_size,
+            headers,
             method,
             path.to_string(),
+            self.secure,
             version,
-            headers,
             *self.remote_addr.as_ref().unwrap(),
-            data_source,
+            source_data,
             writer,
         )
         .map_err(|err| {
@@ -228,6 +309,68 @@ impl ClientConnection {
 
         // return the request
         Ok(request)
+    }
+
+    fn request_error_handler(&mut self, err: ReadError) -> ReadError {
+        match err {
+            ReadError::WrongRequestLine => {
+                send_error_std_response(self, BadRequest400, None, false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::WrongHeader(ver) => {
+                send_error_std_response(self, BadRequest400, Some(ver), false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::HttpProtocol(ver, status) => {
+                send_error_std_response(self, status, Some(ver), false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::WrongVersion(_ver) => {
+                send_error_std_response(self, HttpVersionNotSupported505, None, false);
+            }
+
+            ReadError::ExpectationFailed(ver) => {
+                // TODO: should be recoverable, but needs handling in case of body
+                send_error_std_response(self, ExpectationFailed417, Some(ver), true);
+            }
+
+            ReadError::ReadIoError(ref inner_err) if inner_err.kind() == IoErrorKind::TimedOut => {
+                // windows socket uses `TimedOut` on socket timeout
+                send_error_std_response(self, RequestTimeout408, None, false);
+                // converting to `WouldBlock` for consistency
+                // closing the connection
+                let _ = inner_err;
+                log::debug!("timed out: {inner_err}");
+                return ReadError::WouldBlock;
+            }
+
+            ReadError::ReadIoError(ref inner_err)
+                if inner_err.kind() == IoErrorKind::WouldBlock =>
+            {
+                // unix socket uses `WouldBlock` on socket timeout
+                send_error_std_response(self, RequestTimeout408, None, false);
+                // closing the connection
+                let _ = inner_err;
+                log::debug!("would block: {inner_err}");
+                return ReadError::WouldBlock;
+            }
+
+            ReadError::ReadIoError(ref inner_err) => {
+                let _ = inner_err;
+                log::debug!("close cause: {inner_err} kind: {}", inner_err.kind());
+                // closing the connection
+            }
+
+            ReadError::WouldBlock => {}
+        };
+
+        err
     }
 }
 
@@ -244,111 +387,71 @@ impl Iterator for ClientConnection {
             return None;
         }
 
-        let rq = self.read().map_err(|err| {
-            match err {
-                ReadError::WrongRequestLine => {
-                    send_error_std_response(self, BadRequest400, None, false);
-                    // we don't know where the next request would start,
-                    // so we have to close
-                }
-
-                ReadError::WrongHeader(ver) => {
-                    send_error_std_response(self, BadRequest400, Some(ver), false);
-                    // we don't know where the next request would start,
-                    // so we have to close
-                }
-
-                ReadError::HttpProtocol(ver, status) => {
-                    send_error_std_response(self, status, Some(ver), false);
-                    // we don't know where the next request would start,
-                    // so we have to close
-                }
-
-                ReadError::WrongVersion(_ver) => {
-                    send_error_std_response(self, HttpVersionNotSupported505, None, false);
-                }
-
-                ReadError::ReadIoError(ref inner_err)
-                    if inner_err.kind() == IoErrorKind::TimedOut =>
-                {
-                    // request timeout
-                    // closing the connection
-                    // return send_error_response(self, 408.into(), None, false);
-                    let _ = inner_err;
-                    log::debug!("close cause: {inner_err}");
-                }
-
-                ReadError::ExpectationFailed(ver) => {
-                    // TODO: should be recoverable, but needs handling in case of body
-                    send_error_std_response(self, ExpectationFailed417, Some(ver), true);
-                }
-
-                ReadError::ReadIoError(ref inner_err) => {
-                    let _ = inner_err.to_string();
-                    log::debug!("close cause: {inner_err}");
-                    // closing the connection
-                }
-            };
-
-            err
-        });
+        let rq_result = self
+            .read_request()
+            .map_err(|err| self.request_error_handler(err));
 
         // check if request available
-        let rq = if let Ok(rq) = rq {
+        let rq = if let Ok(rq) = rq_result {
             rq
         } else {
             self.is_connection_close = true;
             // return with ReadError
-            return Some(rq);
+            return Some(rq_result);
         };
 
         // updating the status of the connection
-        let connection_header = rq
-            .headers()
-            .iter()
-            .find_map(|h| {
-                if h.field.equiv("Connection") {
-                    if let Ok(connection_header) = ConnectionHeader::try_from(h) {
-                        Some(Some(connection_header))
-                    } else {
-                        // return after first connection header, also not parseable
-                        Some(None)
-                    }
-                } else {
-                    None
-                }
-            })
-            .flatten();
+        let connection_header = rq.headers().iter().find_map(|h| {
+            if h.field.equiv("Connection") {
+                ConnectionHeader::try_from(&h.value).ok()
+            } else {
+                None
+            }
+        });
 
         let mut rq = rq;
 
         // handle Connection header - see also `[Request::respond]`
-        match connection_header {
-            Some(ConnectionHeader::Close) => set_connection_close(self, &mut rq, true),
-            Some(ConnectionHeader::Upgrade) => {
-                set_connection_close(self, &mut rq, false);
-            }
-            // HTTP/1.0 does a upgrade to 1.1 with keep-alive set
-            Some(ConnectionHeader::KeepAlive) if rq.http_version() == HttpVersion::Version1_0 =>
-            {
-                #[cfg(feature = "socket2")]
-                if !self.socket_config.tcp_keep_alive {
+        if let Some(connection_headers) = connection_header {
+            let connection_header = connection_headers.iter().next();
+            match connection_header {
+                Some(ConnectionValue::Close) => set_connection_close(self, &mut rq, true),
+                Some(ConnectionValue::Upgrade) => {
+                    if !connection_headers.contains(&ConnectionValue::KeepAlive) {
+                        set_connection_close(self, &mut rq, false);
+                    }
+                }
+                // HTTP/1.0 does a upgrade to 1.1 with keep-alive set
+                Some(ConnectionValue::KeepAlive)
+                    if rq.http_version() == HttpVersion::Version1_0 =>
+                {
+                    #[cfg(feature = "socket2")]
+                    if !self.socket_config.tcp_keep_alive {
+                        set_connection_close(self, &mut rq, true);
+                    }
+                }
+                // <= HTTP/1.0 is always close
+                _ if rq.http_version() <= HttpVersion::Version1_0 => {
                     set_connection_close(self, &mut rq, true);
                 }
-            }
+                #[cfg(feature = "socket2")]
+                _ => {
+                    if !self.socket_config.tcp_keep_alive {
+                        set_connection_close(self, &mut rq, true);
+                    }
+                }
+                #[cfg(not(feature = "socket2"))]
+                _ => {}
+            };
+        } else if rq.http_version() <= HttpVersion::Version1_0 {
             // <= HTTP/1.0 is always close
-            _ if rq.http_version() <= HttpVersion::Version1_0 => {
+            set_connection_close(self, &mut rq, true);
+        } else {
+            #[cfg(feature = "socket2")]
+            if !self.socket_config.tcp_keep_alive {
                 set_connection_close(self, &mut rq, true);
             }
-            #[cfg(feature = "socket2")]
-            _ => {
-                if !self.socket_config.tcp_keep_alive {
-                    set_connection_close(self, &mut rq, true);
-                }
-            }
-            #[cfg(not(feature = "socket2"))]
-            _ => {}
-        };
+        }
 
         let rq = rq;
 
@@ -356,34 +459,6 @@ impl Iterator for ClientConnection {
         Some(Ok(rq))
     }
 }
-
-// TODO: remove commented code after benchmarking
-// #[inline]
-// fn send_error_response(
-//     client_connection: &mut ClientConnection,
-//     status: impl Into<StatusCode>,
-//     version: Option<HttpVersion>,
-//     do_not_send_body: bool,
-// ) {
-//     let version = version.unwrap_or(HttpVersion::Version1_0);
-
-//     let writer = client_connection.sink.next().unwrap();
-//     let response = Response::from(status);
-
-//     log::info!(
-//         "send error response [{}] ({})",
-//         client_connection
-//             .remote_addr
-//             .as_ref()
-//             .ok()
-//             .map_or(String::default(), |a| {
-//                 a.map_or(String::default(), |a| a.to_string())
-//             }),
-//         response.status_code()
-//     );
-
-//     let _ = response.raw_print(writer, version, &[], do_not_send_body, None);
-// }
 
 #[inline]
 fn send_error_std_response(
@@ -409,14 +484,14 @@ fn send_error_std_response(
         response.status_code()
     );
 
-    let _ = response.raw_print2(writer, version, &[], do_not_send_body, None);
+    let _ = response.raw_print_ref(writer, version, &[], do_not_send_body, None);
 }
 
 #[inline]
-fn set_connection_close(c: &mut ClientConnection, rq: &mut Request, is_close: bool) {
-    c.is_connection_close = is_close;
-    if is_close {
-        rq.set_connection_header(Some(ConnectionHeader::Close));
+fn set_connection_close(c: &mut ClientConnection, rq: &mut Request, set_close_header: bool) {
+    c.is_connection_close = true;
+    if set_close_header {
+        rq.set_connection_header(Some(ConnectionValue::Close));
     }
 }
 
@@ -427,6 +502,7 @@ pub(crate) enum ReadError {
     ExpectationFailed(HttpVersion),
     HttpProtocol(HttpVersion, response::Standard),
     ReadIoError(IoError),
+    WouldBlock,
     WrongHeader(HttpVersion),
     WrongRequestLine,
     WrongVersion(Option<HttpVersion>),
@@ -447,10 +523,11 @@ impl std::fmt::Display for ReadError {
                     "{} {} {}",
                     v.header(),
                     response.status_code(),
-                    response.reason_phrase()
+                    response.as_utf8_str().unwrap() // StandardResponse has data set
                 )
             }
             Self::ReadIoError(err) => err.fmt(f),
+            Self::WouldBlock => f.write_str("would block"),
             Self::WrongHeader(v) => write!(f, "{} unsupported header", v.header()),
             Self::WrongRequestLine => f.write_str("no request"),
             Self::WrongVersion(v) => write!(

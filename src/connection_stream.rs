@@ -21,6 +21,23 @@ impl ConnectionStream {
         }
     }
 
+    pub(crate) fn read_timeout(&self) -> std::io::Result<Option<std::time::Duration>> {
+        match self {
+            ConnectionStream::Tcp(s) => s.read_timeout(),
+            ConnectionStream::Unix(s) => s.read_timeout(),
+        }
+    }
+
+    pub(crate) fn set_read_timeout(
+        &mut self,
+        dur: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        match self {
+            ConnectionStream::Tcp(s) => s.set_read_timeout(dur),
+            ConnectionStream::Unix(s) => s.set_read_timeout(dur),
+        }
+    }
+
     pub(crate) fn shutdown(&self, how: Shutdown) -> std::io::Result<()> {
         match self {
             Self::Tcp(s) => s.shutdown(how),
@@ -65,16 +82,6 @@ impl std::io::Write for ConnectionStream {
         }
     }
 }
-
-// TODO: not possible because drops before MessageQueue has handled request
-// // sockets can be closed individually by timeouts and not only by client close command
-// // so need to shutdown read and write by ourself
-// #[cfg(feature = "socket2")]
-// impl Drop for ConnectionStream {
-//     fn drop(&mut self) {
-//         let _ = self.shutdown(Shutdown::Both);
-//     }
-// }
 
 impl From<TcpStream> for ConnectionStream {
     fn from(s: TcpStream) -> Self {

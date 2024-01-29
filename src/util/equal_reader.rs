@@ -1,6 +1,8 @@
-use std::io::Read;
-use std::io::Result as IoResult;
+use std::io::{Read, Result as IoResult};
 use std::sync::mpsc::Sender;
+
+use crate::limits;
+use crate::stream_traits::ReadTimeout;
 
 /// A `Reader` that reads exactly the number of bytes from a sub-reader.
 ///
@@ -59,8 +61,8 @@ where
             return;
         }
 
-        let mut buf = &mut [0u8; 256][..];
-        if self.size < 256 {
+        let mut buf = &mut [0u8; limits::EQUAL_READER_BUF_SIZE][..];
+        if self.size < limits::EQUAL_READER_BUF_SIZE {
             buf = &mut buf[..self.size];
         }
 
@@ -81,10 +83,23 @@ where
                 }
             }
 
-            if self.size < 256 {
+            if self.size < limits::EQUAL_READER_BUF_SIZE {
                 buf = &mut buf[..self.size];
             }
         }
+    }
+}
+
+impl<R> ReadTimeout for EqualReader<R>
+where
+    R: Read + ReadTimeout,
+{
+    fn read_timeout(&self) -> IoResult<Option<std::time::Duration>> {
+        self.reader.read_timeout()
+    }
+
+    fn set_read_timeout(&mut self, dur: Option<std::time::Duration>) -> IoResult<()> {
+        self.reader.set_read_timeout(dur)
     }
 }
 

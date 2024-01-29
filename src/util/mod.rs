@@ -5,8 +5,9 @@ pub(crate) use equal_reader::EqualReader;
 pub(crate) use fused_reader::FusedReader;
 pub(crate) use message::Message;
 pub(crate) use messages_queue::MessagesQueue;
+pub(crate) use notify_on_drop::NotifyOnDrop;
 pub(crate) use refined_tcp_stream::RefinedTcpStream;
-pub(crate) use registration::{ArcRegistration, Registration};
+pub(crate) use registration::Registration;
 pub(crate) use sequential::{SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder};
 pub(crate) use task_pool::TaskPool;
 
@@ -15,8 +16,9 @@ mod equal_reader;
 mod fused_reader;
 mod message;
 mod messages_queue;
+mod notify_on_drop;
 pub(crate) mod refined_tcp_stream;
-mod registration;
+pub(crate) mod registration;
 mod sequential;
 mod task_pool;
 

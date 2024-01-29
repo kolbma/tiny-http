@@ -19,6 +19,17 @@ impl SplitOpenSslStream {
         self.0.lock().unwrap().inner.get_mut().peer_addr()
     }
 
+    pub(crate) fn read_timeout(&self) -> std::io::Result<Option<std::time::Duration>> {
+        self.0.lock().unwrap().inner.get_ref().read_timeout()
+    }
+
+    pub(crate) fn set_read_timeout(
+        &mut self,
+        dur: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        self.0.lock().unwrap().inner.get_mut().set_read_timeout(dur)
+    }
+
     pub(crate) fn shutdown(&mut self, how: Shutdown) -> std::io::Result<()> {
         self.0.lock().unwrap().inner.get_mut().shutdown(how)
     }

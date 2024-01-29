@@ -1,50 +1,100 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicU16, AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 /// On instantiation `Registration` adds 1 and on destruction 1 is substracted
-pub(crate) struct Registration<'a> {
-    nb: &'a AtomicUsize,
+pub(crate) struct Registration<T, R>
+where
+    T: Atomic<R>,
+    R: From<u8>,
+{
+    nb: T,
+    _phantom: PhantomData<R>,
 }
 
-impl<'a> Registration<'a> {
-    pub(crate) fn new(nb: &'a AtomicUsize) -> Self {
-        let _ = nb.fetch_add(1, Ordering::Release);
-        Self { nb }
+impl<T, R> Registration<T, R>
+where
+    T: Atomic<R>,
+    R: From<u8>,
+{
+    pub(crate) fn new(nb: T) -> Self {
+        let _ = nb.fetch_add(R::from(1), Ordering::Release);
+        Self {
+            nb,
+            _phantom: PhantomData,
+        }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn value(&self) -> usize {
+    pub(crate) fn value(&self) -> R {
         self.nb.load(Ordering::Relaxed)
     }
 }
 
-impl Drop for Registration<'_> {
+impl<T, R> Drop for Registration<T, R>
+where
+    T: Atomic<R>,
+    R: From<u8>,
+{
     fn drop(&mut self) {
-        let _ = self.nb.fetch_sub(1, Ordering::Release);
+        let _ = self.nb.fetch_sub(R::from(1), Ordering::Release);
     }
 }
 
-/// On instantiation `ArcRegistration` adds 1 and on destruction 1 is substracted
-pub(crate) struct ArcRegistration {
-    nb: Arc<AtomicUsize>,
+pub(crate) trait Atomic<T> {
+    fn load(&self, order: Ordering) -> T;
+    fn fetch_add(&self, val: T, order: Ordering) -> T;
+    fn fetch_sub(&self, val: T, order: Ordering) -> T;
 }
 
-impl ArcRegistration {
-    pub(crate) fn new(nb: Arc<AtomicUsize>) -> Self {
-        let _ = nb.fetch_add(1, Ordering::Release);
-        Self { nb }
-    }
+macro_rules! impl_registration_ref {
+    ($t:ty, $r:ty) => {
+        impl Atomic<$r> for &$t {
+            #[inline]
+            fn load(&self, order: Ordering) -> $r {
+                (*self).load(order)
+            }
 
-    #[allow(dead_code)]
-    pub(crate) fn value(&self) -> usize {
-        self.nb.load(Ordering::Relaxed)
-    }
+            #[inline]
+            fn fetch_add(&self, val: $r, order: Ordering) -> $r {
+                (*self).fetch_add(val, order)
+            }
+
+            #[inline]
+            fn fetch_sub(&self, val: $r, order: Ordering) -> $r {
+                (*self).fetch_sub(val, order)
+            }
+        }
+    };
 }
 
-impl Drop for ArcRegistration {
-    fn drop(&mut self) {
-        let _ = self.nb.fetch_sub(1, Ordering::Release);
-    }
+macro_rules! impl_registration_as_ref {
+    ($t:ty, $r:ty) => {
+        impl Atomic<$r> for $t {
+            #[inline]
+            fn load(&self, order: Ordering) -> $r {
+                self.as_ref().load(order)
+            }
+
+            #[inline]
+            fn fetch_add(&self, val: $r, order: Ordering) -> $r {
+                self.as_ref().fetch_add(val, order)
+            }
+
+            #[inline]
+            fn fetch_sub(&self, val: $r, order: Ordering) -> $r {
+                self.as_ref().fetch_sub(val, order)
+            }
+        }
+    };
 }
+
+pub(crate) type ArcRegistrationU16 = Registration<Arc<AtomicU16>, u16>;
+impl_registration_as_ref!(Arc<AtomicU16>, u16);
+
+// pub(crate) type RegistrationUsize<'a> = Registration<&'a AtomicUsize, usize>;
+impl_registration_ref!(AtomicUsize, usize);

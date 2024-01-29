@@ -1,5 +1,7 @@
 use std::io::{IoSliceMut, Read, Result as IoResult};
 
+use crate::stream_traits::ReadTimeout;
+
 /// Wraps another reader and provides "fused" behavior.
 /// When the underlying reader reaches EOF, it is dropped
 /// and the fused reader becomes an empty stub.
@@ -44,5 +46,25 @@ impl<R: Read> Read for FusedReader<R> {
             }
             None => Ok(0),
         }
+    }
+}
+
+impl<R> ReadTimeout for FusedReader<R>
+where
+    R: Read + ReadTimeout,
+{
+    fn read_timeout(&self) -> IoResult<Option<std::time::Duration>> {
+        if let Some(read_timeout) = &self.inner {
+            read_timeout.read_timeout()
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn set_read_timeout(&mut self, dur: Option<std::time::Duration>) -> IoResult<()> {
+        if let Some(read_timeout) = &mut self.inner {
+            read_timeout.set_read_timeout(dur)?;
+        }
+        Ok(())
     }
 }

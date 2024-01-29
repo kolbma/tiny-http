@@ -1,4 +1,4 @@
-use crate::{request::new_request, Header, HeaderField, HttpVersion, Method, Request};
+use crate::{limits, Header, HeaderField, HttpVersion, Method, Request};
 use ascii::AsciiString;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -65,12 +65,13 @@ impl From<TestRequest> for Request {
                 value: AsciiString::from_ascii(mock.body.len().to_string()).unwrap(),
             });
         }
-        new_request(
-            mock.secure,
+        Request::create(
+            limits::CONTENT_BUFFER_SIZE_DEFAULT,
+            mock.headers,
             mock.method,
             mock.path,
+            mock.secure,
             mock.http_version,
-            mock.headers,
             Some(mock.remote_addr),
             mock.body.as_bytes(),
             std::io::sink(),

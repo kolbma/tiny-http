@@ -93,7 +93,7 @@ use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult},
     net::{Shutdown, TcpStream, ToSocketAddrs},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         mpsc, Arc,
     },
     thread,
@@ -103,12 +103,13 @@ use std::{
 use client::{ClientConnection, ReadError};
 #[cfg(feature = "content-type")]
 pub use common::ContentType;
+pub use common::{limits, LimitsConfig};
 pub use common::{
-    ConnectionHeader, Header, HeaderError, HeaderField, HttpVersion, HttpVersionError, Method,
-    StatusCode,
+    ConnectionHeader, ConnectionValue, Header, HeaderError, HeaderField, HttpVersion,
+    HttpVersionError, Method, StatusCode,
 };
 use connection_stream::ConnectionStream;
-pub use request::{ReadWrite, Request};
+pub use request::Request;
 pub use response::Response;
 pub use server_config::ServerConfig;
 use server_config::CONNECTION_LIMIT_SLEEP_DURATION;
@@ -121,7 +122,7 @@ pub use socket_listener::{ConfigListenAddr, ListenAddr, Listener};
 ))]
 pub use ssl::SslConfig;
 pub use test::TestRequest;
-use util::{ArcRegistration, Message, MessagesQueue, RefinedTcpStream, TaskPool};
+use util::{Message, MessagesQueue, RefinedTcpStream, Registration, TaskPool};
 
 mod client;
 mod common;
@@ -133,6 +134,7 @@ mod server_config;
 mod socket_config;
 mod socket_listener;
 pub mod ssl;
+pub mod stream_traits;
 mod test;
 mod util;
 
@@ -154,7 +156,7 @@ pub struct Server {
     messages: Arc<MessagesQueue<Message>>,
 
     // number of currently open connections
-    num_connections: Arc<AtomicUsize>,
+    num_connections: Arc<AtomicU16>,
 }
 
 // this trait is to make sure that Server implements Share and Send
@@ -305,7 +307,7 @@ impl Server {
         let task_pool = util::TaskPool::new();
 
         // counting number of concurrent client connections
-        let num_connections = Arc::new(AtomicUsize::default());
+        let num_connections = Arc::new(AtomicU16::default());
 
         #[cfg(any(
             feature = "ssl-openssl",
@@ -370,7 +372,7 @@ impl Server {
 
     /// Returns the number of clients currently connected to the server.
     #[must_use]
-    pub fn num_connections(&self) -> usize {
+    pub fn num_connections(&self) -> u16 {
         self.num_connections.load(Ordering::Acquire)
     }
 
@@ -455,7 +457,10 @@ impl Server {
                                 let _ = err;
                             }
                         }
-                        Err(ReadError::ReadIoError(err)) => messages.push(err.into()),
+                        Err(ReadError::ReadIoError(err)) => {
+                            log::debug!("message error: {err:?}");
+                            messages.push(err.into());
+                        }
                         _ => {}
                     }
                 }
@@ -465,7 +470,10 @@ impl Server {
                         Ok(rq) => {
                             messages.push(rq.into());
                         }
-                        Err(ReadError::ReadIoError(err)) => messages.push(err.into()),
+                        Err(ReadError::ReadIoError(err)) => {
+                            log::debug!("message error: {err:?}");
+                            messages.push(err.into());
+                        }
                         _ => {}
                     }
                 }
@@ -478,11 +486,12 @@ impl Server {
         server: Listener,
         server_config: &ServerConfig,
         task_pool: TaskPool,
-        num_connections: &Arc<AtomicUsize>,
+        num_connections: &Arc<AtomicU16>,
         inside_messages: Arc<MessagesQueue<Message>>,
         inside_close_trigger: Arc<AtomicBool>,
     ) {
-        let connection_limit = server_config.connection_limit;
+        let connection_limit = server_config.limits.connection_limit;
+        let limits = Arc::new(server_config.limits);
         let num_connections = Arc::clone(num_connections);
         #[cfg(feature = "socket2")]
         let socket_config = Arc::new(server_config.socket_config.clone());
@@ -497,13 +506,14 @@ impl Server {
 
                 match server.accept() {
                     Ok((sock, _)) => {
-                        let client_counter = ArcRegistration::new(Arc::clone(&num_connections));
+                        let client_counter = Registration::new(Arc::clone(&num_connections));
 
                         let (read_closable, write_closable) = RefinedTcpStream::new(sock);
                         let connection = ClientConnection::new(
                             write_closable,
                             read_closable,
                             client_counter,
+                            &limits,
                             #[cfg(feature = "socket2")]
                             &socket_config,
                         );
@@ -531,7 +541,7 @@ impl Server {
         server: Listener,
         server_config: &ServerConfig,
         task_pool: TaskPool,
-        num_connections: &Arc<AtomicUsize>,
+        num_connections: &Arc<AtomicU16>,
         ssl_config: &SslConfig,
         inside_messages: Arc<MessagesQueue<Message>>,
         inside_close_trigger: Arc<AtomicBool>,
@@ -551,7 +561,8 @@ impl Server {
         let ssl_ctx: SslContext =
             SslContext::from_pem(&ssl_config.certificate, &ssl_config.private_key)?;
 
-        let connection_limit = server_config.connection_limit;
+        let connection_limit = server_config.limits.connection_limit;
+        let limits = Arc::new(server_config.limits);
         let num_connections = Arc::clone(num_connections);
         #[cfg(feature = "socket2")]
         let socket_config = Arc::new(server_config.socket_config.clone());
@@ -566,7 +577,7 @@ impl Server {
 
                 match server.accept() {
                     Ok((sock, _)) => {
-                        let client_counter = ArcRegistration::new(Arc::clone(&num_connections));
+                        let client_counter = Registration::new(Arc::clone(&num_connections));
 
                         let (read_closable, write_closable) = {
                             // trying to apply SSL over the connection
@@ -589,6 +600,7 @@ impl Server {
                             write_closable,
                             read_closable,
                             client_counter,
+                            &limits,
                             #[cfg(feature = "socket2")]
                             &socket_config,
                         );
@@ -637,9 +649,8 @@ impl Drop for Server {
 
 #[cfg(test)]
 mod tests {
-    use env_logger as _;
+    use base64ct as _;
     use fdlimit as _;
     use rlimit as _;
-    use rustc_serialize as _;
     use sha1_smol as _;
 }
