@@ -17,7 +17,7 @@ fn main() {
             addr: ConfigListenAddr::IP(vec!["0.0.0.0:8082".parse().unwrap()]),
             limits: LimitsConfig {
                 connection_limit: 500,
-                header_line_len: 80,
+                header_line_len: 128,
                 ..LimitsConfig::default()
             },
             ..ServerConfig::default()
