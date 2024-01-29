@@ -91,24 +91,30 @@
 use std::{
     error::Error,
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult},
-    net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs},
-    str::FromStr,
+    net::{Shutdown, TcpStream, ToSocketAddrs},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         mpsc, Arc,
     },
     thread,
     time::Duration,
 };
 
-use client::ClientConnection;
-pub use common::{HTTPVersion, Header, HeaderField, Method, StatusCode};
-use connection::Connection;
-#[cfg(feature = "socket2")]
-pub use connection::SocketConfig;
-pub use connection::{ConfigListenAddr, ListenAddr, Listener};
-pub use request::{ReadWrite, Request};
-pub use response::{Response, ResponseBox};
+use client::{ClientConnection, ReadError};
+#[cfg(feature = "content-type")]
+pub use common::ContentType;
+pub use common::{limits, LimitsConfig};
+pub use common::{
+    ConnectionHeader, ConnectionValue, Header, HeaderError, HeaderField, HttpVersion,
+    HttpVersionError, Method, StatusCode,
+};
+use connection_stream::ConnectionStream;
+pub use request::Request;
+pub use response::Response;
+pub use server_config::ServerConfig;
+use server_config::CONNECTION_LIMIT_SLEEP_DURATION;
+pub use socket_config::SocketConfig;
+pub use socket_listener::{ConfigListenAddr, ListenAddr, Listener};
 #[cfg(any(
     feature = "ssl-openssl",
     feature = "ssl-rustls",
@@ -116,32 +122,21 @@ pub use response::{Response, ResponseBox};
 ))]
 pub use ssl::SslConfig;
 pub use test::TestRequest;
-use util::{ArcRegistration, MessagesQueue, RefinedTcpStream, TaskPool};
-
-#[cfg(test)]
-use fdlimit as _;
-#[cfg(test)]
-use rlimit as _;
-#[cfg(test)]
-use rustc_serialize as _;
-#[cfg(test)]
-use sha1_smol as _;
+use util::{Message, MessagesQueue, RefinedTcpStream, Registration, TaskPool};
 
 mod client;
 mod common;
-mod connection;
+mod connection_stream;
 mod log;
 mod request;
-mod response;
+pub mod response;
+mod server_config;
+mod socket_config;
+mod socket_listener;
 pub mod ssl;
+pub mod stream_traits;
 mod test;
 mod util;
-
-/// Default connection limit for concurrent connections
-const CONNECTION_LIMIT_DEFAULT: usize = 200;
-
-/// Duration of sleep to check for concurrent connections
-const CONNECTION_LIMIT_SLEEP_DURATION: Duration = Duration::from_millis(25);
 
 /// The main class of this library.
 ///
@@ -161,24 +156,7 @@ pub struct Server {
     messages: Arc<MessagesQueue<Message>>,
 
     // number of currently open connections
-    num_connections: Arc<AtomicUsize>,
-}
-
-enum Message {
-    Error(IoError),
-    NewRequest(Request),
-}
-
-impl From<IoError> for Message {
-    fn from(e: IoError) -> Message {
-        Message::Error(e)
-    }
-}
-
-impl From<Request> for Message {
-    fn from(rq: Request) -> Message {
-        Message::NewRequest(rq)
-    }
+    num_connections: Arc<AtomicU16>,
 }
 
 // this trait is to make sure that Server implements Share and Send
@@ -204,54 +182,6 @@ impl Iterator for IncomingRequests<'_> {
     }
 }
 
-/// Represents the config parameters required to create a server.
-///
-/// # Example
-///
-/// ```
-/// # use tiny_http::ServerConfig;
-/// let cfg = ServerConfig { connection_limit: 50, ..ServerConfig::default() };
-/// ```
-///
-#[derive(Debug, Clone)]
-pub struct ServerConfig {
-    /// The addresses to try to listen to.
-    pub addr: ConfigListenAddr,
-
-    /// Connections are limited to `connection_limit`
-    pub connection_limit: usize,
-
-    /// Socket configuration with _socket2_ feature  
-    /// See [SocketConfig]
-    #[cfg(feature = "socket2")]
-    pub socket_config: SocketConfig,
-
-    /// If `Some`, then the server will use SSL to encode the communications.
-    #[cfg(any(
-        feature = "ssl-openssl",
-        feature = "ssl-rustls",
-        feature = "ssl-native-tls"
-    ))]
-    pub ssl: Option<SslConfig>,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            addr: ConfigListenAddr::IP(vec![SocketAddr::from_str("127.0.0.1:0").unwrap()]),
-            connection_limit: CONNECTION_LIMIT_DEFAULT,
-            #[cfg(feature = "socket2")]
-            socket_config: SocketConfig::default(),
-            #[cfg(any(
-                feature = "ssl-openssl",
-                feature = "ssl-rustls",
-                feature = "ssl-native-tls"
-            ))]
-            ssl: None,
-        }
-    }
-}
-
 impl Server {
     /// Builds a new server that listens on the specified address.
     ///
@@ -262,10 +192,7 @@ impl Server {
     pub fn new(
         server_config: &ServerConfig,
     ) -> Result<Server, Box<dyn Error + Send + Sync + 'static>> {
-        #[cfg(feature = "socket2")]
         let listener = server_config.addr.bind(&server_config.socket_config)?;
-        #[cfg(not(feature = "socket2"))]
-        let listener = server_config.addr.bind()?;
 
         Self::from_listener(
             listener,
@@ -363,7 +290,7 @@ impl Server {
         let listener = listener.into();
         let (server, local_addr) = {
             let local_addr = listener.local_addr()?;
-            log::debug!("server listening on {}", local_addr);
+            log::info!("server listening on {}", local_addr);
             (listener, local_addr)
         };
 
@@ -380,7 +307,7 @@ impl Server {
         let task_pool = util::TaskPool::new();
 
         // counting number of concurrent client connections
-        let num_connections = Arc::new(AtomicUsize::default());
+        let num_connections = Arc::new(AtomicU16::default());
 
         #[cfg(any(
             feature = "ssl-openssl",
@@ -445,7 +372,7 @@ impl Server {
 
     /// Returns the number of clients currently connected to the server.
     #[must_use]
-    pub fn num_connections(&self) -> usize {
+    pub fn num_connections(&self) -> u16 {
         self.num_connections.load(Ordering::Acquire)
     }
 
@@ -522,15 +449,33 @@ impl Server {
             if client.secure() {
                 let (sender, receiver) = mpsc::channel();
                 for rq in client {
-                    messages.push(rq.with_notify_sender(sender.clone()).into());
-                    if let Err(err) = receiver.recv() {
-                        log::error!("receiver channel hangup: {err:?}");
-                        let _ = err;
+                    match rq {
+                        Ok(rq) => {
+                            messages.push(rq.with_notify_sender(sender.clone()).into());
+                            if let Err(err) = receiver.recv() {
+                                log::error!("receiver channel hangup: {err:?}");
+                                let _ = err;
+                            }
+                        }
+                        Err(ReadError::ReadIoError(err)) => {
+                            log::debug!("message error: {err:?}");
+                            messages.push(err.into());
+                        }
+                        _ => {}
                     }
                 }
             } else {
                 for rq in client {
-                    messages.push(rq.into());
+                    match rq {
+                        Ok(rq) => {
+                            messages.push(rq.into());
+                        }
+                        Err(ReadError::ReadIoError(err)) => {
+                            log::debug!("message error: {err:?}");
+                            messages.push(err.into());
+                        }
+                        _ => {}
+                    }
                 }
             }
         }));
@@ -541,32 +486,41 @@ impl Server {
         server: Listener,
         server_config: &ServerConfig,
         task_pool: TaskPool,
-        num_connections: &Arc<AtomicUsize>,
+        num_connections: &Arc<AtomicU16>,
         inside_messages: Arc<MessagesQueue<Message>>,
         inside_close_trigger: Arc<AtomicBool>,
     ) {
-        let connection_limit = server_config.connection_limit;
+        let connection_limit = server_config.limits.connection_limit;
+        let limits = Arc::new(server_config.limits);
         let num_connections = Arc::clone(num_connections);
+        #[cfg(feature = "socket2")]
+        let socket_config = Arc::new(server_config.socket_config.clone());
 
         let _ = thread::spawn(move || {
             log::debug!("running accept thread");
             while !inside_close_trigger.load(Ordering::Relaxed) {
                 while num_connections.load(Ordering::Acquire) >= connection_limit {
-                    log::debug!("connection limit reached");
+                    log::warn!("connection limit reached");
                     thread::sleep(CONNECTION_LIMIT_SLEEP_DURATION);
                 }
 
                 match server.accept() {
                     Ok((sock, _)) => {
-                        let client_counter = ArcRegistration::new(Arc::clone(&num_connections));
+                        let client_counter = Registration::new(Arc::clone(&num_connections));
 
                         let (read_closable, write_closable) = RefinedTcpStream::new(sock);
-                        let connection =
-                            ClientConnection::new(write_closable, read_closable, client_counter);
+                        let connection = ClientConnection::new(
+                            write_closable,
+                            read_closable,
+                            client_counter,
+                            &limits,
+                            #[cfg(feature = "socket2")]
+                            &socket_config,
+                        );
                         Self::handle_client_connection(&task_pool, connection, &inside_messages);
                     }
                     Err(err) => {
-                        log::debug!("error on connection accept: {err:?}");
+                        log::error!("error on connection accept: {err:?}");
                         // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                         let _ = err;
@@ -587,7 +541,7 @@ impl Server {
         server: Listener,
         server_config: &ServerConfig,
         task_pool: TaskPool,
-        num_connections: &Arc<AtomicUsize>,
+        num_connections: &Arc<AtomicU16>,
         ssl_config: &SslConfig,
         inside_messages: Arc<MessagesQueue<Message>>,
         inside_close_trigger: Arc<AtomicBool>,
@@ -607,20 +561,23 @@ impl Server {
         let ssl_ctx: SslContext =
             SslContext::from_pem(&ssl_config.certificate, &ssl_config.private_key)?;
 
-        let connection_limit = server_config.connection_limit;
+        let connection_limit = server_config.limits.connection_limit;
+        let limits = Arc::new(server_config.limits);
         let num_connections = Arc::clone(num_connections);
+        #[cfg(feature = "socket2")]
+        let socket_config = Arc::new(server_config.socket_config.clone());
 
         let _ = thread::spawn(move || {
             log::debug!("running accept thread");
             while !inside_close_trigger.load(Ordering::Relaxed) {
                 while num_connections.load(Ordering::Acquire) >= connection_limit {
-                    log::debug!("connection limit reached");
+                    log::warn!("connection limit reached");
                     thread::sleep(CONNECTION_LIMIT_SLEEP_DURATION);
                 }
 
                 match server.accept() {
                     Ok((sock, _)) => {
-                        let client_counter = ArcRegistration::new(Arc::clone(&num_connections));
+                        let client_counter = Registration::new(Arc::clone(&num_connections));
 
                         let (read_closable, write_closable) = {
                             // trying to apply SSL over the connection
@@ -628,7 +585,7 @@ impl Server {
                             let sock = match ssl_ctx.accept(sock) {
                                 Ok(s) => s,
                                 Err(err) => {
-                                    log::debug!("ssl handshake failed: {}", err);
+                                    log::warn!("ssl handshake failed: {}", err);
                                     // TODO: how to handle these errors?!
                                     inside_messages
                                         .push(IoError::new(IoErrorKind::Other, err).into());
@@ -639,12 +596,18 @@ impl Server {
                             RefinedTcpStream::new(sock)
                         };
 
-                        let connection =
-                            ClientConnection::new(write_closable, read_closable, client_counter);
+                        let connection = ClientConnection::new(
+                            write_closable,
+                            read_closable,
+                            client_counter,
+                            &limits,
+                            #[cfg(feature = "socket2")]
+                            &socket_config,
+                        );
                         Self::handle_client_connection(&task_pool, connection, &inside_messages);
                     }
                     Err(err) => {
-                        log::debug!("error on connection accept: {err:?}");
+                        log::error!("error on connection accept: {err:?}");
                         // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                     }
@@ -663,12 +626,12 @@ impl Drop for Server {
         self.close.store(true, Ordering::Relaxed);
         // Connect briefly to ourselves to unblock the accept thread
         let maybe_stream = match &self.listening_addr {
-            ListenAddr::IP(addr) => TcpStream::connect(addr).map(Connection::from),
+            ListenAddr::IP(addr) => TcpStream::connect(addr).map(ConnectionStream::from),
             #[cfg(unix)]
             ListenAddr::Unix(addr) => {
                 // TODO: use connect_addr when its stabilized.
                 let path = addr.as_pathname().unwrap();
-                std::os::unix::net::UnixStream::connect(path).map(Connection::from)
+                std::os::unix::net::UnixStream::connect(path).map(ConnectionStream::from)
             }
         };
         if let Ok(stream) = maybe_stream {
@@ -682,4 +645,12 @@ impl Drop for Server {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use base64ct as _;
+    use fdlimit as _;
+    use rlimit as _;
+    use sha1_smol as _;
 }

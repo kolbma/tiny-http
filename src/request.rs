@@ -1,16 +1,16 @@
+use std::convert::TryFrom;
 use std::io::Error as IoError;
-use std::io::{self, Cursor, ErrorKind, Read, Write};
-
-use std::fmt;
+use std::io::{self, Cursor, ErrorKind as IoErrorKind, Read, Write};
 use std::net::SocketAddr;
-use std::str::FromStr;
-
 use std::sync::mpsc::Sender;
 
-use crate::log;
-use crate::util::{EqualReader, FusedReader};
-use crate::{HTTPVersion, Header, Method, Response};
-use chunked_transfer::Decoder;
+use ascii::AsciiString;
+
+use crate::response::Standard::Continue100;
+use crate::stream_traits::{DataRead, DataReadWrite};
+use crate::util::{EqualReader, FusedReader, NotifyOnDrop};
+use crate::{log, response, ConnectionHeader, ConnectionValue};
+use crate::{Header, HttpVersion, Method, Response};
 
 /// Represents an HTTP request made by a client.
 ///
@@ -49,313 +49,34 @@ use chunked_transfer::Decoder;
 ///
 /// If you want to build fake requests to test your server, use [`TestRequest`](crate::test::TestRequest).
 pub struct Request {
+    connection_header: Option<ConnectionHeader>,
+    #[cfg(feature = "content-type")]
+    content_type: Option<crate::ContentType>,
+    content_length: Option<usize>,
     // where to read the body from
-    data_reader: Option<Box<dyn Read + Send + 'static>>,
-
-    // if this writer is empty, then the request has been answered
-    response_writer: Option<Box<dyn Write + Send + 'static>>,
-
-    remote_addr: Option<SocketAddr>,
-
-    // true if HTTPS, false if HTTP
-    secure: bool,
-
-    method: Method,
-
-    path: String,
-
-    http_version: HTTPVersion,
-
-    headers: Vec<Header>,
-
-    body_length: Option<usize>,
-
+    data_reader: Option<Box<dyn DataRead + Send + 'static>>,
     // true if a `100 Continue` response must be sent when `as_reader()` is called
-    must_send_continue: bool,
-
+    expect_continue: bool,
+    headers: Vec<Header>,
+    http_version: HttpVersion,
+    method: Method,
     // If Some, a message must be sent after responding
     notify_when_responded: Option<Sender<()>>,
-}
-
-struct NotifyOnDrop<R> {
-    sender: Sender<()>,
-    inner: R,
-}
-
-impl<R: Read> Read for NotifyOnDrop<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.read(buf)
-    }
-}
-impl<R: Write> Write for NotifyOnDrop<R> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.write(buf)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
-    }
-}
-impl<R> Drop for NotifyOnDrop<R> {
-    fn drop(&mut self) {
-        self.sender.send(()).unwrap();
-    }
-}
-
-/// Error that can happen when building a `Request` object.
-#[derive(Debug)]
-pub(crate) enum RequestCreationError {
-    /// The client sent an `Expect` header that was not recognized by tiny-http.
-    ExpectationFailed,
-
-    /// Error while reading data from the socket during the creation of the `Request`.
-    CreationIoError(IoError),
-}
-
-impl From<IoError> for RequestCreationError {
-    fn from(err: IoError) -> RequestCreationError {
-        RequestCreationError::CreationIoError(err)
-    }
-}
-
-/// Builds a new request.
-///
-/// After the request line and headers have been read from the socket, a new `Request` object
-/// is built.
-///
-/// You must pass a `Read` that will allow the `Request` object to read from the incoming data.
-/// It is the responsibility of the `Request` to read only the data of the request and not further.
-///
-/// The `Write` object will be used by the `Request` to write the response.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn new_request<R, W>(
-    secure: bool,
-    method: Method,
     path: String,
-    version: HTTPVersion,
-    headers: Vec<Header>,
     remote_addr: Option<SocketAddr>,
-    mut source_data: R,
-    writer: W,
-) -> Result<Request, RequestCreationError>
-where
-    R: Read + Send + 'static,
-    W: Write + Send + 'static,
-{
-    // finding the transfer-encoding header
-    let transfer_encoding = headers
-        .iter()
-        .find(|h: &&Header| h.field.equiv("Transfer-Encoding"))
-        .map(|h| h.value.clone());
-
-    // finding the content-length header
-    let content_length = if transfer_encoding.is_some() {
-        // if transfer-encoding is specified, the Content-Length
-        // header must be ignored (RFC2616 #4.4)
-        None
-    } else {
-        headers
-            .iter()
-            .find(|h: &&Header| h.field.equiv("Content-Length"))
-            .and_then(|h| FromStr::from_str(h.value.as_str()).ok())
-    };
-
-    // true if the client sent a `Expect: 100-continue` header
-    let expects_continue = {
-        match headers
-            .iter()
-            .find(|h: &&Header| h.field.equiv("Expect"))
-            .map(|h| h.value.as_str())
-        {
-            None => false,
-            Some(v) if v.eq_ignore_ascii_case("100-continue") => true,
-            _ => return Err(RequestCreationError::ExpectationFailed),
-        }
-    };
-
-    // true if the client sent a `Connection: upgrade` header
-    let connection_upgrade = headers.iter().any(|header| {
-        header.field.equiv("Connection")
-            && header
-                .value
-                .to_ascii_lowercase()
-                .as_str()
-                .contains("upgrade")
-    });
-
-    // we wrap `source_data` around a reading whose nature depends on the transfer-encoding and
-    // content-length headers
-    let reader = if connection_upgrade {
-        // if we have a `Connection: upgrade`, always keeping the whole reader
-        Box::new(source_data)
-    } else if let Some(content_length) = content_length {
-        if content_length == 0 {
-            Box::new(io::empty())
-        } else if content_length <= 1024 && !expects_continue {
-            // if the content-length is small enough, we just read everything into a buffer
-
-            let mut buffer = vec![0; content_length];
-            let mut offset = 0;
-
-            while offset != content_length {
-                let read = source_data.read(&mut buffer[offset..])?;
-                if read == 0 {
-                    // the socket returned EOF, but we were before the expected content-length
-                    // aborting
-                    let info = "Connection has been closed before we received enough data";
-                    let err = IoError::new(ErrorKind::ConnectionAborted, info);
-                    return Err(RequestCreationError::CreationIoError(err));
-                }
-
-                offset += read;
-            }
-
-            Box::new(Cursor::new(buffer))
-        } else {
-            let data_reader = EqualReader::new(source_data, content_length, None); // TODO:
-            #[allow(trivial_casts)]
-            {
-                Box::new(FusedReader::new(data_reader)) as Box<dyn Read + Send + 'static>
-            }
-        }
-    } else if transfer_encoding.is_some() {
-        // if a transfer-encoding was specified, then "chunked" is ALWAYS applied
-        // over the message (RFC2616 #3.6)
-        #[allow(trivial_casts)]
-        {
-            Box::new(FusedReader::new(Decoder::new(source_data))) as Box<dyn Read + Send + 'static>
-        }
-    } else {
-        // if we have neither a Content-Length nor a Transfer-Encoding,
-        // assuming that we have no data
-        // TODO: could also be multipart/byteranges
-        Box::new(io::empty())
-    };
-
-    Ok(Request {
-        data_reader: Some(reader),
-        response_writer: Some(Box::new(writer)),
-        remote_addr,
-        secure,
-        method,
-        path,
-        http_version: version,
-        headers,
-        body_length: content_length,
-        must_send_continue: expects_continue,
-        notify_when_responded: None,
-    })
+    // if this writer is empty, then the request has been answered
+    response_writer: Option<Box<dyn Write + Send + 'static>>,
+    // true if HTTPS, false if HTTP
+    secure: bool,
 }
 
 impl Request {
-    /// Returns true if the request was made through HTTPS.
-    #[must_use]
-    #[inline]
-    pub fn secure(&self) -> bool {
-        self.secure
-    }
-
-    /// Returns the method requested by the client (eg. `GET`, `POST`, etc.).
-    #[must_use]
-    #[inline]
-    pub fn method(&self) -> &Method {
-        &self.method
-    }
-
-    /// Returns the resource requested by the client.
-    #[must_use]
-    #[inline]
-    pub fn url(&self) -> &str {
-        &self.path
-    }
-
-    /// Returns a list of all headers sent by the client.
-    #[must_use]
-    #[inline]
-    pub fn headers(&self) -> &[Header] {
-        &self.headers
-    }
-
-    /// Returns the HTTP version of the request.
-    #[must_use]
-    #[inline]
-    pub fn http_version(&self) -> &HTTPVersion {
-        &self.http_version
-    }
-
-    /// Returns the length of the body in bytes.
-    ///
-    /// Returns `None` if the length is unknown.
-    #[must_use]
-    #[inline]
-    pub fn body_length(&self) -> Option<usize> {
-        self.body_length
-    }
-
-    /// Returns the address of the client that sent this request.
-    ///
-    /// The address is always `Some` for TCP listeners, but always `None` for UNIX listeners
-    /// (as the remote address of a UNIX client is almost always unnamed).
-    ///
-    /// Note that this is gathered from the socket. If you receive the request from a proxy,
-    /// this function will return the address of the proxy and not the address of the actual
-    /// user.
-    #[must_use]
-    #[inline]
-    pub fn remote_addr(&self) -> Option<&SocketAddr> {
-        self.remote_addr.as_ref()
-    }
-
-    /// Sends a response with a `Connection: upgrade` header, then turns the `Request` into a `Stream`.
-    ///
-    /// The main purpose of this function is to support websockets.
-    /// If you detect that the request wants to use some kind of protocol upgrade, you can
-    ///  call this function to obtain full control of the socket stream.
-    ///
-    /// If you call this on a non-websocket request, tiny-http will wait until this `Stream` object
-    ///  is destroyed before continuing to read or write on the socket. Therefore you should always
-    ///  destroy it as soon as possible.
-    ///
-    /// # Panics
-    ///
-    /// - when response can not be written
-    ///
-    pub fn upgrade<R: Read>(
-        mut self,
-        protocol: &str,
-        response: Response<R>,
-    ) -> Box<dyn ReadWrite + Send> {
-        use crate::util::CustomStream;
-
-        let _ = response.raw_print(
-            self.response_writer.as_mut().unwrap(),
-            &self.http_version,
-            &self.headers,
-            false,
-            Some(protocol),
-        ); // TODO: unused result
-
-        let _ = self.response_writer.as_mut().unwrap().flush(); // TODO: unused result
-
-        let stream = CustomStream::new(self.extract_reader_impl(), self.extract_writer_impl());
-        if let Some(sender) = self.notify_when_responded.take() {
-            let stream = NotifyOnDrop {
-                sender,
-                inner: stream,
-            };
-            Box::new(stream)
-        } else {
-            Box::new(stream)
-        }
-    }
-
     /// Allows to read the body of the request.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # extern crate rustc_serialize;
     /// # extern crate tiny_http;
-    /// # use rustc_serialize::json::Json;
     /// # use std::io::Read;
     /// # fn get_content_type(_: &tiny_http::Request) -> &'static str { "" }
     /// # fn main() {
@@ -365,7 +86,7 @@ impl Request {
     /// if get_content_type(&request) == "application/json" {
     ///     let mut content = String::new();
     ///     request.as_reader().read_to_string(&mut content).unwrap();
-    ///     let json: Json = content.parse().unwrap();
+    ///     // let json: Json = content.parse().unwrap();
     /// }
     /// # }
     /// ```
@@ -378,21 +99,73 @@ impl Request {
     /// - when response can not be written
     ///
     #[inline]
-    pub fn as_reader(&mut self) -> &mut dyn Read {
-        if self.must_send_continue {
-            let msg = Response::empty(100);
-            let _ = msg.raw_print(
-                self.response_writer.as_mut().unwrap().by_ref(),
-                &self.http_version,
+    pub fn as_reader(&mut self) -> &mut dyn DataRead {
+        if self.expect_continue {
+            let response = <&response::StandardResponse>::from(Continue100);
+            log::info!(
+                "response [{}] ({})",
+                self.remote_addr_string(),
+                response.status_code()
+            );
+            let writer = self.response_writer.as_mut().unwrap();
+            let _ = response.raw_print_ref(
+                writer.by_ref(),
+                self.http_version,
                 &self.headers,
                 true,
                 None,
             );
-            let _ = self.response_writer.as_mut().unwrap().flush();
-            self.must_send_continue = false;
+            let _ = writer.flush();
+            self.expect_continue = false;
         }
 
         self.data_reader.as_mut().unwrap()
+    }
+
+    /// Returns the length of the body in bytes.
+    ///
+    /// Returns `None` if the length is unknown.
+    #[deprecated = "use content_length()"]
+    #[must_use]
+    #[inline]
+    pub fn body_length(&self) -> Option<usize> {
+        self.content_length
+    }
+
+    /// The `[ConnectionHeader]` of `[Request]`
+    #[must_use]
+    pub fn connection_header(&self) -> Option<&ConnectionHeader> {
+        self.connection_header.as_ref()
+    }
+
+    /// Returns the length of the body content in bytes.
+    ///
+    /// Returns `None` if the length is unknown.
+    #[must_use]
+    #[inline]
+    pub fn content_length(&self) -> Option<usize> {
+        self.content_length
+    }
+
+    /// One of the supported `[ContentType](crate::ContentType)` of `[Request]`
+    #[cfg(feature = "content-type")]
+    #[must_use]
+    pub fn content_type(&self) -> Option<crate::ContentType> {
+        self.content_type
+    }
+
+    /// Returns a list of all headers sent by the client.
+    #[must_use]
+    #[inline]
+    pub fn headers(&self) -> &[Header] {
+        &self.headers
+    }
+
+    /// Returns the HTTP version of the request.
+    #[must_use]
+    #[inline]
+    pub fn http_version(&self) -> HttpVersion {
+        self.http_version
     }
 
     /// Turns the `Request` into a writer.
@@ -420,31 +193,42 @@ impl Request {
         }
     }
 
-    /// Extract the response `Writer` object from the Request, dropping this `Writer` has the same side effects
-    /// as the object returned by `into_writer` above.
-    ///
-    /// This may only be called once on a single request.
-    fn extract_writer_impl(&mut self) -> Box<dyn Write + Send + 'static> {
-        use std::mem;
-
-        assert!(self.response_writer.is_some());
-
-        let mut writer = None;
-        mem::swap(&mut self.response_writer, &mut writer);
-        writer.unwrap()
+    /// Returns the method requested by the client (eg. `GET`, `POST`, etc.).
+    #[must_use]
+    #[inline]
+    pub fn method(&self) -> &Method {
+        &self.method
     }
 
-    /// Extract the body `Reader` object from the Request.
+    /// Returns the address of the client that sent this request.
     ///
-    /// This may only be called once on a single request.
-    fn extract_reader_impl(&mut self) -> Box<dyn Read + Send + 'static> {
-        use std::mem;
+    /// The address is always `Some` for TCP listeners, but always `None` for UNIX listeners
+    /// (as the remote address of a UNIX client is almost always unnamed).
+    ///
+    /// Note that this is gathered from the socket. If you receive the request from a proxy,
+    /// this function will return the address of the proxy and not the address of the actual
+    /// user.
+    #[must_use]
+    #[inline]
+    pub fn remote_addr(&self) -> Option<&SocketAddr> {
+        self.remote_addr.as_ref()
+    }
 
-        assert!(self.data_reader.is_some());
-
-        let mut reader = None;
-        mem::swap(&mut self.data_reader, &mut reader);
-        reader.unwrap()
+    /// Returns the address of the client that sent this request as `[String]`.
+    ///
+    /// The address is always `Some` for TCP listeners, but always `None` for UNIX listeners
+    /// (as the remote address of a UNIX client is almost always unnamed).
+    /// No available address is returned as empty string.
+    ///
+    /// Note that this is gathered from the socket. If you receive the request from a proxy,
+    /// this function will return the address of the proxy and not the address of the actual
+    /// user.
+    #[must_use]
+    #[inline]
+    pub fn remote_addr_string(&self) -> String {
+        self.remote_addr
+            .as_ref()
+            .map_or(String::default(), std::string::ToString::to_string)
     }
 
     /// Sends a response to this request.
@@ -458,6 +242,9 @@ impl Request {
     where
         R: Read,
     {
+        let mut response = response;
+        self.respond_update_headers(&mut response);
+
         let res = self.respond_impl(response);
         if let Some(sender) = self.notify_when_responded.take() {
             if let Err(err) = sender.send(()) {
@@ -468,17 +255,271 @@ impl Request {
         res
     }
 
+    /// Sends a response to this request.
+    ///
+    /// # Errors
+    ///
+    /// - `std::io::Error` on response problem
+    ///
+    #[inline]
+    pub fn respond_ref<R>(mut self, response: &mut Response<R>) -> Result<(), IoError>
+    where
+        R: Read + Clone,
+    {
+        self.respond_update_headers(response);
+
+        let res = self.respond_ref_impl(response);
+        if let Some(sender) = self.notify_when_responded.take() {
+            if let Err(err) = sender.send(()) {
+                log::error!("send failed: {err:?}");
+                let _ = err;
+            }
+        }
+        res
+    }
+
+    /// Returns true if the request was made through HTTPS.
+    #[must_use]
+    #[inline]
+    pub fn secure(&self) -> bool {
+        self.secure
+    }
+
+    /// Sends a response with a `Connection: upgrade` header, then turns the `Request` into a `Stream`.
+    ///
+    /// The main purpose of this function is to support websockets.
+    /// If you detect that the request wants to use some kind of protocol upgrade, you can
+    /// call this function to obtain full control of the socket stream.
+    ///
+    /// If you call this on a non-websocket request, tiny-http will wait until this `Stream` object
+    /// is destroyed before continuing to read or write on the socket. Therefore you should always
+    /// destroy it as soon as possible.
+    ///
+    /// # Panics
+    ///
+    /// - when response can not be written
+    ///
+    pub fn upgrade<R>(
+        mut self,
+        protocol: &str,
+        response: Response<R>,
+    ) -> Box<dyn DataReadWrite + Send>
+    where
+        R: Read,
+    {
+        use crate::util::CustomStream;
+
+        if let Err(err) = response.raw_print(
+            self.response_writer.as_mut().unwrap(),
+            self.http_version,
+            &self.headers,
+            false,
+            Some(protocol),
+        ) {
+            log::error!("upgrade fail: {err:?}");
+            let _ = err;
+        }
+
+        let _ = self.response_writer.as_mut().unwrap().flush();
+
+        let stream = CustomStream::new(self.extract_reader_impl(), self.extract_writer_impl());
+        if let Some(sender) = self.notify_when_responded.take() {
+            let stream = NotifyOnDrop {
+                sender,
+                inner: stream,
+            };
+            Box::new(stream)
+        } else {
+            Box::new(stream)
+        }
+    }
+
+    /// Returns the resource requested by the client.
+    #[must_use]
+    #[inline]
+    pub fn url(&self) -> &str {
+        &self.path
+    }
+
+    /// Builds a new request.
+    ///
+    /// After the request line and headers have been read from the socket, a new `Request` object
+    /// is built.
+    ///
+    /// You must pass a `Read` that will allow the `Request` object to read from the incoming data.
+    /// It is the responsibility of the `Request` to read only the data of the request and not further.
+    ///
+    /// The `Write` object will be used by the `Request` to write the response.
+    ///
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create<R, W>(
+        buf_size: usize,
+        headers: Vec<Header>,
+        method: Method,
+        path: String,
+        secure: bool,
+        version: HttpVersion,
+        remote_addr: Option<SocketAddr>,
+        mut source_data: R,
+        writer: W,
+    ) -> Result<Request, CreateError>
+    where
+        R: DataRead + Send + 'static,
+        W: Write + Send + 'static,
+    {
+        let mut search_header = SearchHeader::parse(&headers)?;
+
+        if search_header.transfer_encoding.is_some() {
+            // if transfer-encoding is specified, the Content-Length
+            // header must be ignored (RFC2616 #4.4)
+            search_header.content_length = None;
+        }
+
+        // we wrap `source_data` around a reading whose nature depends on the transfer-encoding and
+        // content-length headers
+        let reader = if search_header.connections == Some(ConnectionValue::Upgrade.into()) {
+            // if we have a `Connection: upgrade`, always keeping the whole reader
+            Box::new(source_data)
+        } else if let Some(content_length) = search_header.content_length {
+            if content_length == 0 {
+                Box::new(io::empty())
+            } else if content_length <= buf_size && !search_header.expect_continue {
+                // if the content-length is small enough (`buf_size`), we just read everything into a buffer
+                // see [`LimitsConfig`](crate::LimitsConfig)
+
+                // next request in keep-alive connection, follows possible immediately after content-length
+                let mut buffer = vec![
+                    0;
+                    content_length
+                        + usize::from(
+                            search_header.connections == Some(ConnectionValue::Close.into())
+                        )
+                ];
+                let mut offset = 0;
+
+                while offset < content_length {
+                    let read = source_data.read(&mut buffer[offset..])?;
+                    if read == 0 {
+                        break;
+                    }
+
+                    offset += read;
+                }
+
+                if offset < content_length
+                    || (offset != content_length
+                        && search_header.connections == Some(ConnectionValue::Close.into()))
+                {
+                    // on Connection: close it needs to match, because there may be no next request in stream
+                    return Err(CreateError::ContentLength);
+                }
+                // keep-alive: if next data in stream is no new request but oversize data from this request
+                // it will be handled by bad request in the next the request handling
+
+                Box::new(Cursor::new(buffer))
+            } else {
+                let data_reader = EqualReader::new(source_data, content_length, None); // TODO:
+                #[allow(trivial_casts)]
+                {
+                    Box::new(FusedReader::new(data_reader)) as Box<dyn DataRead + Send + 'static>
+                }
+            }
+        } else if search_header.transfer_encoding.is_some() {
+            // if a transfer-encoding was specified, then "chunked" is ALWAYS applied over the message (RFC2616 #3.6)
+            #[allow(trivial_casts)]
+            {
+                Box::new(FusedReader::new(chunked_transfer::Decoder::new(
+                    source_data,
+                ))) as Box<dyn DataRead + Send + 'static>
+            }
+        } else {
+            // if we have neither a Content-Length nor a Transfer-Encoding, assuming that we have no data
+            // TODO: could also be multipart/byteranges
+            Box::new(io::empty())
+        };
+
+        Ok(Request {
+            connection_header: search_header.connections,
+            content_length: search_header.content_length,
+            #[cfg(feature = "content-type")]
+            content_type: search_header.content_type,
+            data_reader: Some(reader),
+            expect_continue: search_header.expect_continue,
+            headers,
+            http_version: version,
+            method,
+            notify_when_responded: None,
+            path,
+            remote_addr,
+            response_writer: Some(Box::new(writer)),
+            secure,
+        })
+    }
+
+    /// Set `[ConnectionHeader]` of `[Request]`
+    pub(crate) fn set_connection_header(&mut self, connection_header: Option<ConnectionValue>) {
+        self.connection_header = connection_header.map(ConnectionHeader::from);
+    }
+
+    pub(crate) fn with_notify_sender(mut self, sender: Sender<()>) -> Self {
+        self.notify_when_responded = Some(sender);
+        self
+    }
+
+    /// Extract the response `Writer` object from the Request, dropping this `Writer` has the same side effects
+    /// as the object returned by `into_writer` above.
+    ///
+    /// This may only be called once on a single request.
+    fn extract_writer_impl(&mut self) -> Box<dyn Write + Send + 'static> {
+        assert!(self.response_writer.is_some());
+        self.response_writer.take().expect("extract writer failed")
+    }
+
+    /// Extract the body `Reader` object from the Request.
+    ///
+    /// This may only be called once on a single request.
+    fn extract_reader_impl(&mut self) -> Box<dyn DataRead + Send + 'static> {
+        assert!(self.data_reader.is_some());
+        self.data_reader.take().expect("extract reader failed")
+    }
+
+    fn ignore_client_closing_errors(result: io::Result<()>) -> io::Result<()> {
+        result.or_else(|err| match err.kind() {
+            IoErrorKind::BrokenPipe
+            | IoErrorKind::ConnectionAborted
+            | IoErrorKind::ConnectionRefused
+            | IoErrorKind::ConnectionReset
+            | IoErrorKind::TimedOut
+            | IoErrorKind::WouldBlock => {
+                log::info!("{err:?}");
+                Ok(())
+            }
+            _ => {
+                log::error!("error: {err:?}");
+                Err(err)
+            }
+        })
+    }
+
     fn respond_impl<R>(&mut self, response: Response<R>) -> Result<(), IoError>
     where
         R: Read,
     {
+        if response.status_code() < 400 {
+            log::info!(
+                "response [{}] ({})",
+                self.remote_addr_string(),
+                response.status_code()
+            );
+        }
+
         let mut writer = self.extract_writer_impl();
 
         let do_not_send_body = self.method == Method::Head;
 
         Self::ignore_client_closing_errors(response.raw_print(
             writer.by_ref(),
-            &self.http_version,
+            self.http_version,
             &self.headers,
             do_not_send_body,
             None,
@@ -487,26 +528,68 @@ impl Request {
         Self::ignore_client_closing_errors(writer.flush())
     }
 
-    fn ignore_client_closing_errors(result: io::Result<()>) -> io::Result<()> {
-        result.or_else(|err| match err.kind() {
-            ErrorKind::BrokenPipe
-            | ErrorKind::ConnectionAborted
-            | ErrorKind::ConnectionRefused
-            | ErrorKind::ConnectionReset => Ok(()),
-            _ => Err(err),
-        })
+    fn respond_ref_impl<R>(&mut self, response: &Response<R>) -> Result<(), IoError>
+    where
+        R: Read + Clone,
+    {
+        if response.status_code() < 400 {
+            log::info!(
+                "response [{}] ({})",
+                self.remote_addr_string(),
+                response.status_code()
+            );
+        }
+
+        let mut writer = self.extract_writer_impl();
+
+        let do_not_send_body = self.method == Method::Head;
+
+        Self::ignore_client_closing_errors(response.raw_print_ref(
+            writer.by_ref(),
+            self.http_version,
+            &self.headers,
+            do_not_send_body,
+            None,
+        ))?;
+
+        Self::ignore_client_closing_errors(writer.flush())
     }
 
-    pub(crate) fn with_notify_sender(mut self, sender: Sender<()>) -> Self {
-        self.notify_when_responded = Some(sender);
-        self
+    fn respond_update_headers<R>(&mut self, response: &mut Response<R>)
+    where
+        R: Read,
+    {
+        // Modify `Connection` header to `Close` connection
+        if self.connection_header == Some(ConnectionValue::Close.into()) {
+            response::util::update_optional_header(
+                response.headers_mut(),
+                ConnectionValue::Close.into(),
+                false,
+            );
+        } else if self.http_version == HttpVersion::Version1_1 {
+            response::util::update_optional_header(
+                response.headers_mut(),
+                ConnectionValue::KeepAlive.into(),
+                false,
+            );
+        } else if self.connection_header == Some(ConnectionValue::KeepAlive.into()) {
+            response::util::update_optional_header(
+                response.headers_mut(),
+                ConnectionValue::KeepAlive.into(),
+                false,
+            );
+            if self.http_version == HttpVersion::Version1_0 {
+                // keep-alive upgrades to 1.1
+                self.http_version = HttpVersion::Version1_1;
+            }
+        }
     }
 }
 
-impl fmt::Debug for Request {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
-            formatter,
+            f,
             "Request({} {} from {:?})",
             self.method, self.path, self.remote_addr
         )
@@ -516,20 +599,127 @@ impl fmt::Debug for Request {
 impl Drop for Request {
     fn drop(&mut self) {
         if self.response_writer.is_some() {
-            let response = Response::empty(500);
-            let _ = self.respond_impl(response); // ignoring any potential error
+            let response =
+                <&response::StandardResponse>::from(&response::Standard::InternalServerError500);
+            log::debug!(
+                "drop unresponded request [{}] ({})",
+                self.remote_addr_string(),
+                response.status_code()
+            );
+            let _ = self.respond_ref_impl(response); // ignoring any potential error
             if let Some(sender) = self.notify_when_responded.take() {
-                sender.send(()).unwrap();
+                if let Err(err) = sender.send(()) {
+                    log::error!("notify_when_responded fail");
+                    let _ = err;
+                }
             }
         }
     }
 }
 
-/// Dummy trait that regroups the `Read` and `Write` traits.
-///
-/// Automatically implemented on all types that implement both `Read` and `Write`.
-pub trait ReadWrite: Read + Write {}
-impl<T> ReadWrite for T where T: Read + Write {}
+/// Error that can happen when building a `Request` object
+#[derive(Debug)]
+pub(crate) enum CreateError {
+    /// Content-Length not correct
+    ContentLength,
+    /// The client sent an `Expect` header that was not recognized by tiny-http
+    Expect,
+    /// Error while reading data from the socket during the creation of the `Request`
+    IoError(IoError),
+}
+
+impl std::error::Error for CreateError {}
+
+impl std::fmt::Display for CreateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ContentLength => f.write_str("content-length error"),
+            Self::Expect => f.write_str("expect error"),
+            Self::IoError(err) => std::fmt::Display::fmt(err, f),
+        }
+    }
+}
+
+impl From<IoError> for CreateError {
+    fn from(err: IoError) -> CreateError {
+        CreateError::IoError(err)
+    }
+}
+
+struct SearchHeader<'a> {
+    connections: Option<ConnectionHeader>,
+    content_length: Option<usize>,
+    #[cfg(feature = "content-type")]
+    content_type: Option<crate::ContentType>,
+    expect_continue: bool,
+    transfer_encoding: Option<&'a AsciiString>,
+}
+
+impl<'a> SearchHeader<'a> {
+    /// Iterates header fields once and collects [`SearchHeader`]
+    ///
+    /// # Errors
+    ///
+    /// [`CreateError::Expect`] if not supported `Expect` header found
+    ///
+    #[inline]
+    fn parse(headers: &'a Vec<Header>) -> Result<Self, CreateError> {
+        // search headers for these fields and do bit marking in found_headers
+        let mut search_header = SearchHeader {
+            connections: None,
+            content_length: None,
+            #[cfg(feature = "content-type")]
+            content_type: None,
+            expect_continue: false,
+            transfer_encoding: None,
+        };
+
+        let mut found_headers = 0u8;
+
+        for header in headers {
+            let f = &header.field;
+            if f.equiv("Connection") {
+                search_header.connections = ConnectionHeader::try_from(&header.value).ok();
+                found_headers |= 1;
+            } else if f.equiv("Content-Length") {
+                search_header.content_length = header.value.as_str().parse().ok();
+                found_headers |= 2;
+            } else if f.equiv("Expect") {
+                // true if the client sent a `Expect: 100-continue` header
+                if header.value.as_str().eq_ignore_ascii_case("100-continue") {
+                    search_header.expect_continue = true;
+                } else {
+                    return Err(CreateError::Expect);
+                }
+                found_headers |= 4;
+            } else if f.equiv("Transfer-Encoding") {
+                search_header.transfer_encoding = Some(&header.value);
+                found_headers |= 8;
+            }
+
+            #[cfg(feature = "content-type")]
+            {
+                if f.equiv("Content-Type") {
+                    search_header.content_type = crate::ContentType::try_from(header).ok();
+                    found_headers |= 16;
+                }
+
+                // bit field match
+                if found_headers == 31 {
+                    break;
+                }
+            }
+
+            // bit field match
+            #[cfg(not(feature = "content-type"))]
+            if found_headers == 15 {
+                break;
+            }
+        }
+
+        Ok(search_header)
+    }
+}
 
 #[cfg(test)]
 mod tests {

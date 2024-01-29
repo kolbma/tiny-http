@@ -1,11 +1,9 @@
-use std::io::Result as IoResult;
-use std::io::{Read, Write};
-
-use std::sync::mpsc::channel;
-use std::sync::mpsc::{Receiver, Sender};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write};
+use std::mem;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use std::mem;
+use crate::stream_traits::ReadTimeout;
 
 pub(crate) struct SequentialReaderBuilder<R>
 where
@@ -77,7 +75,7 @@ impl<R: Read + Send> Iterator for SequentialReaderBuilder<R> {
     type Item = SequentialReader<R>;
 
     fn next(&mut self) -> Option<SequentialReader<R>> {
-        let (tx, rx) = channel();
+        let (tx, rx) = mpsc::channel();
 
         let inner = mem::replace(&mut self.inner, SequentialReaderBuilderInner::NotFirst(rx));
 
@@ -98,9 +96,9 @@ impl<R: Read + Send> Iterator for SequentialReaderBuilder<R> {
 impl<W: Write + Send> Iterator for SequentialWriterBuilder<W> {
     type Item = SequentialWriter<W>;
     fn next(&mut self) -> Option<SequentialWriter<W>> {
-        let (tx, rx) = channel();
+        let (tx, rx) = mpsc::channel();
         let mut next_next_trigger = Some(rx);
-        ::std::mem::swap(&mut next_next_trigger, &mut self.next_trigger);
+        mem::swap(&mut next_next_trigger, &mut self.next_trigger);
 
         Some(SequentialWriter {
             trigger: next_next_trigger,
@@ -110,7 +108,7 @@ impl<W: Write + Send> Iterator for SequentialWriterBuilder<W> {
     }
 }
 
-impl<R: Read + Send> Read for SequentialReader<R> {
+impl<R: Read + ReadTimeout + Send> Read for SequentialReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         let mut reader = match self.inner {
             SequentialReaderInner::MyTurn(ref mut reader) => return reader.read(buf),
@@ -156,8 +154,9 @@ where
                 let _ = self.next.send(reader);
             }
             SequentialReaderInner::Waiting(recv) => {
-                let reader = recv.recv().unwrap();
-                let _ = self.next.send(reader);
+                if let Ok(reader) = recv.recv() {
+                    let _ = self.next.send(reader);
+                }
             }
             SequentialReaderInner::Empty => (),
         }
@@ -170,5 +169,32 @@ where
 {
     fn drop(&mut self) {
         let _ = self.on_finish.send(());
+    }
+}
+
+impl<R> ReadTimeout for SequentialReader<R>
+where
+    R: Read + ReadTimeout + Send,
+{
+    fn read_timeout(&self) -> IoResult<Option<std::time::Duration>> {
+        match &self.inner {
+            SequentialReaderInner::MyTurn(reader) => reader.read_timeout(),
+            SequentialReaderInner::Waiting(recv) => recv
+                .try_recv()
+                .map_err(|err| IoError::new(IoErrorKind::WouldBlock, err.to_string()))?
+                .read_timeout(),
+            SequentialReaderInner::Empty => Ok(None),
+        }
+    }
+
+    fn set_read_timeout(&mut self, dur: Option<std::time::Duration>) -> IoResult<()> {
+        match &mut self.inner {
+            SequentialReaderInner::MyTurn(reader) => reader.set_read_timeout(dur),
+            SequentialReaderInner::Waiting(recv) => recv
+                .try_recv()
+                .map_err(|err| IoError::new(IoErrorKind::WouldBlock, err.to_string()))?
+                .set_read_timeout(dur),
+            SequentialReaderInner::Empty => Ok(()),
+        }
     }
 }

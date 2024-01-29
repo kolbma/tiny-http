@@ -1,4 +1,4 @@
-use crate::{request::new_request, HTTPVersion, Header, HeaderField, Method, Request};
+use crate::{limits, Header, HeaderField, HttpVersion, Method, Request};
 use ascii::AsciiString;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -42,13 +42,13 @@ use std::str::FromStr;
 #[derive(Debug)]
 pub struct TestRequest {
     body: &'static str,
+    headers: Vec<Header>,
+    http_version: HttpVersion,
+    method: Method,
+    path: String,
     remote_addr: SocketAddr,
     // true if HTTPS, false if HTTP
     secure: bool,
-    method: Method,
-    path: String,
-    http_version: HTTPVersion,
-    headers: Vec<Header>,
 }
 
 impl From<TestRequest> for Request {
@@ -65,12 +65,13 @@ impl From<TestRequest> for Request {
                 value: AsciiString::from_ascii(mock.body.len().to_string()).unwrap(),
             });
         }
-        new_request(
-            mock.secure,
+        Request::create(
+            limits::CONTENT_BUFFER_SIZE_DEFAULT,
+            mock.headers,
             mock.method,
             mock.path,
+            mock.secure,
             mock.http_version,
-            mock.headers,
             Some(mock.remote_addr),
             mock.body.as_bytes(),
             std::io::sink(),
@@ -83,12 +84,12 @@ impl Default for TestRequest {
     fn default() -> Self {
         TestRequest {
             body: "",
-            remote_addr: "127.0.0.1:23456".parse().unwrap(),
-            secure: false,
+            headers: Vec::new(),
+            http_version: HttpVersion::Version1_1,
             method: Method::Get,
             path: "/".to_string(),
-            http_version: HTTPVersion::from((1, 1)),
-            headers: Vec::new(),
+            remote_addr: "127.0.0.1:23456".parse().unwrap(),
+            secure: false,
         }
     }
 }
@@ -131,7 +132,7 @@ impl TestRequest {
     }
 
     #[must_use]
-    pub fn with_http_version(mut self, version: HTTPVersion) -> Self {
+    pub fn with_http_version(mut self, version: HttpVersion) -> Self {
         self.http_version = version;
         self
     }

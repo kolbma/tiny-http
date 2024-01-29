@@ -1,22 +1,24 @@
-pub(crate) use self::custom_stream::CustomStream;
-pub(crate) use self::equal_reader::EqualReader;
-pub(crate) use self::fused_reader::FusedReader;
-pub(crate) use self::messages_queue::MessagesQueue;
-pub(crate) use self::refined_tcp_stream::RefinedTcpStream;
-pub(crate) use self::registration::{ArcRegistration, Registration};
-pub(crate) use self::sequential::{
-    SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder,
-};
-pub(crate) use self::task_pool::TaskPool;
-
 use std::str::FromStr;
+
+pub(crate) use custom_stream::CustomStream;
+pub(crate) use equal_reader::EqualReader;
+pub(crate) use fused_reader::FusedReader;
+pub(crate) use message::Message;
+pub(crate) use messages_queue::MessagesQueue;
+pub(crate) use notify_on_drop::NotifyOnDrop;
+pub(crate) use refined_tcp_stream::RefinedTcpStream;
+pub(crate) use registration::Registration;
+pub(crate) use sequential::{SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder};
+pub(crate) use task_pool::TaskPool;
 
 mod custom_stream;
 mod equal_reader;
 mod fused_reader;
+mod message;
 mod messages_queue;
+mod notify_on_drop;
 pub(crate) mod refined_tcp_stream;
-mod registration;
+pub(crate) mod registration;
 mod sequential;
 mod task_pool;
 

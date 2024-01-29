@@ -1,5 +1,5 @@
-use crate::connection::Connection;
 use crate::util::refined_tcp_stream::Stream as RefinedStream;
+use crate::ConnectionStream;
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr};
@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use zeroize::Zeroizing;
 
 pub(crate) struct OpenSslStream {
-    inner: openssl::ssl::SslStream<Connection>,
+    inner: openssl::ssl::SslStream<ConnectionStream>,
 }
 
 /// An OpenSSL stream which has been split into two mutually exclusive streams (e.g. for read / write)
@@ -17,6 +17,17 @@ pub(crate) struct SplitOpenSslStream(Arc<Mutex<OpenSslStream>>);
 impl SplitOpenSslStream {
     pub(crate) fn peer_addr(&mut self) -> std::io::Result<Option<SocketAddr>> {
         self.0.lock().unwrap().inner.get_mut().peer_addr()
+    }
+
+    pub(crate) fn read_timeout(&self) -> std::io::Result<Option<std::time::Duration>> {
+        self.0.lock().unwrap().inner.get_ref().read_timeout()
+    }
+
+    pub(crate) fn set_read_timeout(
+        &mut self,
+        dur: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        self.0.lock().unwrap().inner.get_mut().set_read_timeout(dur)
     }
 
     pub(crate) fn shutdown(&mut self, how: Shutdown) -> std::io::Result<()> {
@@ -94,7 +105,7 @@ impl OpenSslContext {
 
     pub(crate) fn accept(
         &self,
-        stream: Connection,
+        stream: ConnectionStream,
     ) -> Result<OpenSslStream, Box<dyn Error + Send + Sync + 'static>> {
         use openssl::ssl::Ssl;
         let session = Ssl::new(&self.0).expect("Failed to create new OpenSSL session");

@@ -1,5 +1,6 @@
-use std::io::Result as IoResult;
-use std::io::{Read, Write};
+use std::io::{Read, Result as IoResult, Write};
+
+use crate::stream_traits::ReadTimeout;
 
 pub(crate) struct CustomStream<R, W> {
     reader: R,
@@ -35,5 +36,19 @@ where
 
     fn flush(&mut self) -> IoResult<()> {
         self.writer.flush()
+    }
+}
+
+impl<R, W> ReadTimeout for CustomStream<R, W>
+where
+    R: Read + ReadTimeout,
+    W: Write,
+{
+    fn read_timeout(&self) -> IoResult<Option<std::time::Duration>> {
+        self.reader.read_timeout()
+    }
+
+    fn set_read_timeout(&mut self, dur: Option<std::time::Duration>) -> IoResult<()> {
+        self.reader.set_read_timeout(dur)
     }
 }

@@ -5,7 +5,8 @@ use std::thread;
 
 fn main() {
     let server = Arc::new(tiny_http::Server::http("0.0.0.0:9975").unwrap());
-    println!("Now listening on port 9975");
+    let port = server.server_addr().to_ip().unwrap().port();
+    println!("Now listening on http://localhost:{port}/");
 
     let mut handles = Vec::new();
 

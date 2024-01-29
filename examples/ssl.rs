@@ -18,7 +18,7 @@ fn main() {
     use tiny_http::{Response, Server};
 
     let server = Server::https(
-        "0.0.0.0:8000",
+        "0.0.0.0:9975",
         tiny_http::SslConfig::new(
             include_bytes!("ssl-cert.pem").to_vec(),
             include_bytes!("ssl-key.pem").to_vec(),
@@ -31,6 +31,9 @@ fn main() {
               because the connection is unsecure. This is because the certificate used by this \
               example is self-signed. With a real certificate, you wouldn't get this warning."
     );
+
+    let port = server.server_addr().to_ip().unwrap().port();
+    println!("Now listening on https://localhost:{port}/");
 
     for request in server.incoming_requests() {
         assert!(request.secure());
