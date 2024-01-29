@@ -382,6 +382,7 @@ impl Server {
     ///
     /// - `[Message::Error]`
     ///
+    #[inline]
     pub fn recv(&self) -> IoResult<Request> {
         match self.messages.pop() {
             Some(Message::Error(err)) => Err(err),
@@ -396,6 +397,7 @@ impl Server {
     ///
     /// - `[Message::Error]`
     ///
+    #[inline]
     pub fn recv_timeout(&self, timeout: Duration) -> IoResult<Option<Request>> {
         match self.messages.pop_timeout(timeout) {
             Some(Message::Error(err)) => Err(err),
@@ -417,6 +419,7 @@ impl Server {
     ///
     /// - `[Message::Error]`
     ///
+    #[inline]
     pub fn try_recv(&self) -> IoResult<Option<Request>> {
         match self.messages.try_pop() {
             Some(Message::Error(err)) => Err(err),
@@ -521,6 +524,8 @@ impl Server {
                     }
                     Err(err) => {
                         log::error!("error on connection accept: {err:?}");
+                        #[cfg(not(feature = "log"))]
+                        eprintln!("error on connection accept: {err:?}");
                         // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                         let _ = err;
@@ -608,6 +613,8 @@ impl Server {
                     }
                     Err(err) => {
                         log::error!("error on connection accept: {err:?}");
+                        #[cfg(not(feature = "log"))]
+                        eprintln!("error on connection accept: {err:?}");
                         // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                     }
