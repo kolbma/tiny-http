@@ -1,7 +1,11 @@
 [package]
 name = "tiny_http"
 version = "0.12.0"
-authors = ["pierre.krieger1708@gmail.com", "Corey Farwell <coreyf@rwell.org>"]
+authors = [
+    "pierre.krieger1708@gmail.com",
+    "Corey Farwell <coreyf@rwell.org>",
+    "arlecchino <github@tower-net.de>",
+]
 description = "Low level HTTP server library"
 homepage = "https://tiny-http.github.io/tiny-http/"
 repository = "https://github.com/tiny-http/tiny-http"
@@ -21,7 +25,8 @@ rust-version = "1.60"
 msrv = "1.60"
 
 [features]
-default = ["log", "socket2"]
+default = ["content-type", "log"]
+content-type = []
 socket2 = ["dep:socket2"]
 ssl = ["ssl-openssl"]
 ssl-openssl = ["openssl", "zeroize"]
@@ -32,6 +37,7 @@ ssl-native-tls = ["native-tls", "zeroize"]
 ascii = "1.1"
 chunked_transfer = "1"
 httpdate = "1.0.3"
+lazy_static = "1.4.0"
 log = { version = "0.4.20", optional = true }
 openssl = { version = "0.10", optional = true }
 rustls = { version = "0.22.2", optional = true }
@@ -41,8 +47,10 @@ zeroize = { version = "1", optional = true }
 native-tls = { version = "0.2", optional = true }
 
 [dev-dependencies]
+base64ct = { version = "1.6.0", features = ["alloc"] }
+#env_logger = { version = "0.11", default-features = false }
 fdlimit = "0.3.0"
-rustc-serialize = "0.3"
+#log = { version = "0.4.20" }
 sha1_smol = "1.0.0"
 
 [target.'cfg(unix)'.dev-dependencies]
