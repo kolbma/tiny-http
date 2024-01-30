@@ -19,7 +19,7 @@ fn basic_hello_world_http_1_0() {
     let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.contains("hello world"), "{}", content);
-    assert!(!content.contains("Connection: Keep-Alive"), "{}", content);
+    assert!(!content.contains("Connection: keep-alive"), "{}", content);
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn basic_hello_world_close_http_1_0() {
 
     write!(
         client,
-        "GET / HTTP/1.0\r\nHost: localhost\r\nConnection: Close\r\n\r\n"
+        "GET / HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
     )
     .unwrap();
 
@@ -36,8 +36,8 @@ fn basic_hello_world_close_http_1_0() {
     let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.contains("hello world"), "{}", content);
-    assert!(!content.contains("Connection: Keep-Alive"), "{}", content);
-    assert!(content.contains("Connection: Close"), "{}", content);
+    assert!(!content.contains("Connection: keep-alive"), "{}", content);
+    assert!(content.contains("Connection: close"), "{}", content);
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn basic_hello_world_http_1_1() {
     // connection is keep-alive, so we need to close or it is waiting for server to close socket in read_to_string() below
     write!(
         client,
-        "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n"
+        "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
     )
     .unwrap();
 
@@ -68,8 +68,29 @@ fn basic_hello_world_http_1_1() {
     let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.contains("hello world"), "{}", content);
-    assert!(content.contains("Connection: Keep-Alive"), "{}", content);
-    assert!(content.contains("Connection: Close"), "{}", content);
+    assert!(!content.contains("Connection: keep-alive"), "{}", content);
+    assert!(content.contains("Connection: close"), "{}", content);
+
+    let mut client = support::new_client_to_hello_world_server_2(Some(3000), None);
+
+    write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"
+    )
+    .unwrap();
+    // connection is keep-alive, so we need to close or it is waiting for server to close socket in read_to_string() below
+    write!(
+        client,
+        "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content).unwrap();
+
+    assert!(content.contains("hello world"), "{}", content);
+    assert!(content.contains("Connection: keep-alive"), "{}", content);
+    assert!(content.contains("Connection: close"), "{}", content);
 }
 
 #[test]
@@ -80,7 +101,7 @@ fn basic_hello_world_data_http_1_1() {
     // connection is keep-alive, so we need to close or it is waiting for server to close socket in read_to_string() below
     write!(
         client,
-        "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n"
+        "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
     )
     .unwrap();
 
@@ -88,8 +109,8 @@ fn basic_hello_world_data_http_1_1() {
     let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.contains("hello world"), "{}", content);
-    assert!(content.contains("Connection: Keep-Alive"), "{}", content);
-    assert!(content.contains("Connection: Close"), "{}", content);
+    assert!(!content.contains("Connection: keep-alive"), "{}", content);
+    assert!(content.contains("Connection: close"), "{}", content);
     #[cfg(feature = "content-type")]
     assert!(
         content.contains("Content-Type: text/plain; charset=utf8"),
@@ -112,7 +133,7 @@ fn basic_hello_world_close_http_1_1() {
     let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.contains("hello world"), "{}", content);
-    assert!(!content.contains("Connection: Keep-Alive"), "{}", content);
+    assert!(!content.contains("Connection: keep-alive"), "{}", content);
 }
 
 #[test]
@@ -129,7 +150,7 @@ fn basic_hello_world_data_close_http_1_1() {
     let _ = client.read_to_string(&mut content).unwrap();
 
     assert!(content.contains("hello world"), "{}", content);
-    assert!(!content.contains("Connection: Keep-Alive"), "{}", content);
+    assert!(!content.contains("Connection: keep-alive"), "{}", content);
     #[cfg(feature = "content-type")]
     assert!(
         content.contains("Content-Type: text/plain; charset=utf8"),
@@ -188,7 +209,7 @@ fn content_length_shorter_close() {
 
     {
         let mut client = client;
-        write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\nContent-Type: text/plain; charset=utf8\r\nContent-Length: 3\r\n\r\nhello").unwrap();
+        write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: text/plain; charset=utf8\r\nContent-Length: 3\r\n\r\nhello").unwrap();
     }
 
     let timeout = Duration::from_millis(100);
@@ -230,7 +251,7 @@ fn content_length_higher_close() {
 
     {
         let mut client = client;
-        write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\nContent-Type: text/plain; charset=utf8\r\nContent-Length: 24\r\n\r\nhello").unwrap();
+        write!(client, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: text/plain; charset=utf8\r\nContent-Length: 24\r\n\r\nhello").unwrap();
     }
 
     let timeout = Duration::from_millis(100);
