@@ -1,6 +1,5 @@
-//! Limits used in [`ClientConnection`] and [`Request`] handling
+//! Limits used in `ClientConnection` and [`Request`] handling
 //!
-//! [`ClientConnection`]: crate::client::ClientConnection
 //! [`Request`]: crate::Request
 //!
 
