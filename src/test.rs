@@ -1,7 +1,6 @@
 use crate::{limits, Header, HeaderField, HttpVersion, Method, Request};
 use ascii::AsciiString;
 use std::net::SocketAddr;
-use std::str::FromStr;
 
 /// A simpler version of [`Request`] that is useful for testing. No data actually goes anywhere.
 ///
@@ -61,7 +60,7 @@ impl From<TestRequest> for Request {
             .any(|h| h.field.equiv("Content-Length"))
         {
             mock.headers.push(Header {
-                field: HeaderField::from_str("Content-Length").unwrap(),
+                field: HeaderField::from_bytes(&b"Content-Length"[..]).unwrap(),
                 value: AsciiString::from_ascii(mock.body.len().to_string()).unwrap(),
             });
         }

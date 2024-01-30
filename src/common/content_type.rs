@@ -7,6 +7,8 @@ use std::fmt::{self, Formatter};
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+use crate::common;
+
 /// HTTP protocol Content-Type header values
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 #[allow(missing_docs)]
@@ -123,7 +125,7 @@ impl From<&ContentType> for &'static str {
 impl From<ContentType> for super::Header {
     fn from(value: ContentType) -> Self {
         super::Header {
-            field: "Content-Type".parse().unwrap(),
+            field: common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
             value: value.into(),
         }
     }
@@ -131,7 +133,7 @@ impl From<ContentType> for super::Header {
 
 impl From<ContentType> for super::HeaderField {
     fn from(_: ContentType) -> Self {
-        "Content-Type".parse().unwrap()
+        common::static_header::CONTENT_TYPE_HEADER_FIELD.clone()
     }
 }
 

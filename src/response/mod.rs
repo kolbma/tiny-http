@@ -9,7 +9,7 @@ use std::io::{self, Cursor, Read, Result as IoResult, Write};
 use std::str::FromStr;
 use std::sync::mpsc::Receiver;
 
-use crate::common::{Header, HeaderError, HttpVersion, StatusCode};
+use crate::common::{self, Header, HeaderError, HttpVersion, StatusCode};
 use crate::{ConnectionValue, HeaderField};
 
 pub use self::standard::{Standard, StandardResponse};
@@ -354,8 +354,8 @@ where
             util::update_optional_hashset(
                 &mut self.filter_headers,
                 [
-                    "Content-Length".parse().unwrap(),
-                    "Content-Type".parse().unwrap(),
+                    common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
+                    common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
                 ],
             );
         }
@@ -693,8 +693,8 @@ where
             util::update_optional_hashset(
                 &mut filter_headers,
                 [
-                    "Content-Length".parse().unwrap(),
-                    "Content-Type".parse().unwrap(),
+                    common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
+                    common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
                 ],
             );
         }

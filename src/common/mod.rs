@@ -14,4 +14,5 @@ mod header;
 mod http_version;
 pub mod limits;
 mod method;
+pub(crate) mod static_header;
 mod status_code;
