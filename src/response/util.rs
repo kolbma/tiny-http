@@ -249,7 +249,7 @@ mod tests {
         let result = write_message_header(
             &mut writer,
             HttpVersion::Version1_1,
-            200.into(),
+            StatusCode(200),
             &[],
             &Some(vec![
                 DateHeader::current(),
@@ -269,7 +269,7 @@ mod tests {
         let result = write_message_header(
             &mut writer,
             HttpVersion::Version1_1,
-            200.into(),
+            StatusCode(200),
             &[],
             &Some(vec![
                 DateHeader::current(),
