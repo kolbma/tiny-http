@@ -256,7 +256,7 @@ mod tests {
                 Header::from_bytes(b"Server", b"tiny-http").unwrap(),
             ]),
             &Some(HashSet::from([
-                HeaderField::from_bytes(b"Date").map_err(|_| HeaderError)?
+                HeaderField::from_bytes(&b"Date"[..]).map_err(|_| HeaderError)?
             ])),
         );
         assert!(result.is_ok());
