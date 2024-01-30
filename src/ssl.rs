@@ -2,7 +2,7 @@
 //! implementation, but Rustls is highly recommended as a pure Rust alternative.
 //!
 //! In order to simplify the swappable implementations these SSL/TLS modules adhere to an implicit
-//! trait contract and specific implementations are re-exported as [`SslContextImpl`] and [`SslStream`].
+//! trait contract and specific implementations are re-exported as `SslContextImpl` and `SslStream`.
 //! The concrete type of these aliases will depend on which module you enable in `Cargo.toml`.
 #![cfg(any(
     feature = "ssl-openssl",

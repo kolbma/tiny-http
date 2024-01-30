@@ -48,8 +48,8 @@ pub trait ReadTimeout {
     /// [`Duration`]: std::time::Duration
     /// [`read`]: Read::read
     /// [`TcpStream::set_read_timeout`]: std::net::TcpStream::set_read_timeout
-    /// [`TimedOut`]: io::ErrorKind::TimedOut
-    /// [`WouldBlock`]: io::ErrorKind::WouldBlock
+    /// [`TimedOut`]: std::io::ErrorKind::TimedOut
+    /// [`WouldBlock`]: std::io::ErrorKind::WouldBlock
     ///
     #[allow(clippy::missing_errors_doc)]
     fn set_read_timeout(&mut self, dur: Option<Duration>) -> IoResult<()>;
