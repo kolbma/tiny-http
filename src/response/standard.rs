@@ -253,7 +253,8 @@ mod tests {
         for _ in 0..rounds {
             for status in &l1 {
                 let response = Response::from(*status);
-                let _hint = std::hint::black_box(response);
+                let _ = response;
+                // let _hint = std::hint::black_box(response);
             }
         }
         let elaps1 = now.elapsed();
@@ -262,7 +263,8 @@ mod tests {
         for _ in 0..rounds {
             for status in &l2 {
                 let response = Standard::response(status).clone();
-                let _hint = std::hint::black_box(response);
+                let _ = response;
+                // let _hint = std::hint::black_box(response);
             }
         }
         let elaps2 = now.elapsed();
