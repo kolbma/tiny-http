@@ -1,21 +1,12 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::io::{Result as IoResult, Write};
-use std::time::SystemTime;
 use std::{cmp::Ordering, str::FromStr};
-
-use httpdate::HttpDate;
 
 use crate::{Header, HeaderField, HttpVersion, StatusCode};
 
+use super::date_header::DateHeader;
 use super::transfer_encoding::TransferEncoding;
-
-/// Builds a Date: header with the current date.
-#[inline]
-pub(super) fn build_date_header() -> Header {
-    let d = HttpDate::from(SystemTime::now());
-    Header::from_bytes(b"Date", d.to_string().as_bytes()).unwrap()
-}
 
 pub(super) fn choose_transfer_encoding(
     status_code: StatusCode,
@@ -124,7 +115,7 @@ pub(super) fn set_default_headers_if_not_set(headers: &Option<Vec<Header>>) -> V
 
     // add `Date` if not in the headers
     if check_bitfield & 1 == 0 {
-        headers.push(build_date_header());
+        headers.push(DateHeader::current());
     }
 
     // add `Server` if not in the headers
@@ -261,10 +252,12 @@ mod tests {
             200.into(),
             &[],
             &Some(vec![
-                build_date_header(),
-                Header::from_str("Server: tiny-http").unwrap(),
+                DateHeader::current(),
+                Header::from_bytes(b"Server", b"tiny-http").unwrap(),
             ]),
-            &Some(HashSet::from([HeaderField::from_str("Date")?])),
+            &Some(HashSet::from([
+                HeaderField::from_bytes(b"Date").map_err(|_| HeaderError)?
+            ])),
         );
         assert!(result.is_ok());
 
@@ -279,7 +272,7 @@ mod tests {
             200.into(),
             &[],
             &Some(vec![
-                build_date_header(),
+                DateHeader::current(),
                 Header::from_str("Server: tiny-http").unwrap(),
             ]),
             &Some(HashSet::from([HeaderField::from_str("Server")?])),

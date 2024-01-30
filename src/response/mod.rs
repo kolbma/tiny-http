@@ -15,6 +15,7 @@ use crate::{ConnectionValue, HeaderField};
 pub use self::standard::{Standard, StandardResponse};
 use self::transfer_encoding::TransferEncoding;
 
+mod date_header;
 mod standard;
 mod transfer_encoding;
 pub(super) mod util;
