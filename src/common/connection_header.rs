@@ -11,15 +11,16 @@ use std::fmt::{self, Formatter};
 
 use crate::HeaderField;
 
+const CONNECTION_HEADER_SORTED: &[ConnectionValue] = &[
+    ConnectionValue::Close,
+    ConnectionValue::Upgrade,
+    ConnectionValue::KeepAlive,
+];
+
 lazy_static! {
     static ref CONNECTION_HEADER_ITER: std::iter::Enumerate<std::slice::Iter<'static, ConnectionValue>> =
-        [
-            ConnectionValue::Close,
-            ConnectionValue::Upgrade,
-            ConnectionValue::KeepAlive,
-        ]
-        .iter()
-        .enumerate();
+        CONNECTION_HEADER_SORTED.iter().enumerate();
+    static ref CONNECTION_HEADER_SORTED_LAST_IDX: usize = CONNECTION_HEADER_SORTED.len() - 1;
 }
 
 /// Http protocol Connection header line content
@@ -119,23 +120,17 @@ impl Iterator for ConnectionHeaderIterator<'_> {
 
     /// Get the next important [`ConnectionValue`]
     fn next(&mut self) -> Option<Self::Item> {
-        const VALUES: [ConnectionValue; 3] = [
-            ConnectionValue::Close,
-            ConnectionValue::Upgrade,
-            ConnectionValue::KeepAlive,
-        ];
-        const VALUES_MAX_IDX: usize = VALUES.len() - 1;
         let cur = self.idx.take();
         if let Some(cur) = cur {
             let mut next = cur + 1;
-            while next <= VALUES_MAX_IDX {
-                if self.header.contains(&VALUES[next]) {
+            while next <= *CONNECTION_HEADER_SORTED_LAST_IDX {
+                if self.header.contains(&CONNECTION_HEADER_SORTED[next]) {
                     self.idx = Some(next);
                     break;
                 }
                 next += 1;
             }
-            Some(VALUES[cur])
+            Some(CONNECTION_HEADER_SORTED[cur])
         } else {
             None
         }
@@ -159,7 +154,7 @@ impl std::fmt::Display for ConnectionValue {
     }
 }
 
-impl From<ConnectionValue> for AsciiString {
+impl From<ConnectionValue> for &'static AsciiStr {
     fn from(value: ConnectionValue) -> Self {
         match value {
             ConnectionValue::Close => AsciiStr::from_ascii(b"close"),
@@ -167,7 +162,12 @@ impl From<ConnectionValue> for AsciiString {
             ConnectionValue::Upgrade => AsciiStr::from_ascii(b"upgrade"),
         }
         .unwrap()
-        .to_ascii_string()
+    }
+}
+
+impl From<ConnectionValue> for AsciiString {
+    fn from(value: ConnectionValue) -> Self {
+        <&AsciiStr>::from(value).to_ascii_string()
     }
 }
 
@@ -198,20 +198,16 @@ impl From<ConnectionValue> for super::Header {
 
 impl From<ConnectionHeader> for super::Header {
     fn from(value: ConnectionHeader) -> Self {
-        let mut ascii = AsciiString::new();
-        for v in value.iter() {
-            let s = <&str>::from(v);
-            ascii.push_str(AsciiStr::from_ascii(s.as_bytes()).unwrap());
-            ascii.push(ascii::AsciiChar::Comma);
-            ascii.push(ascii::AsciiChar::Space);
-        }
-        if !ascii.is_empty() {
-            ascii.truncate(ascii.len() - 2);
-        }
-
         super::Header {
             field: HeaderField::from_bytes(&b"Connection"[..]).unwrap(),
-            value: ascii,
+            value: <AsciiString as std::str::FromStr>::from_str(
+                &value
+                    .iter()
+                    .map(<&str>::from)
+                    .collect::<Vec<&str>>()
+                    .join(", "),
+            )
+            .unwrap(),
         }
     }
 }
@@ -273,9 +269,153 @@ impl From<ConnectionValue> for ConnectionHeader {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use crate::Header;
 
     use super::*;
+
+    #[ignore = "seems to be no difference and all vary"]
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn connection_header_conversion_bench_test() {
+        #[allow(clippy::inline_always)]
+        #[inline(always)]
+        fn header_with_ascii_string(value: &ConnectionHeader) -> Header {
+            let mut ascii = AsciiString::new();
+
+            for v in value.iter() {
+                let s = <&AsciiStr>::from(v);
+                ascii.push_str(s);
+                ascii.push(ascii::AsciiChar::Comma);
+                ascii.push(ascii::AsciiChar::Space);
+            }
+            if !ascii.is_empty() {
+                ascii.truncate(ascii.len() - 2);
+            }
+
+            Header {
+                field: HeaderField::from_bytes(&b"Connection"[..]).unwrap(),
+                value: ascii,
+            }
+        }
+
+        #[allow(clippy::inline_always)]
+        #[inline(always)]
+        fn header_with_ascii_string_2(value: &ConnectionHeader) -> Header {
+            let mut ascii = AsciiString::new();
+            let mut it = value.iter();
+            let mut v = it.next();
+
+            loop {
+                ascii.push_str(<&AsciiStr>::from(v.unwrap()));
+
+                v = it.next();
+
+                if v.is_none() {
+                    break;
+                }
+
+                ascii.push(ascii::AsciiChar::Comma);
+                ascii.push(ascii::AsciiChar::Space);
+            }
+
+            Header {
+                field: HeaderField::from_bytes(&b"Connection"[..]).unwrap(),
+                value: ascii,
+            }
+        }
+
+        #[allow(clippy::inline_always)]
+        #[inline(always)]
+        fn header_with_iter_join(value: &ConnectionHeader) -> Header {
+            Header {
+                field: HeaderField::from_bytes(&b"Connection"[..]).unwrap(),
+                value: <AsciiString as std::str::FromStr>::from_str(
+                    &value
+                        .iter()
+                        .map(<&str>::from)
+                        .collect::<Vec<&str>>()
+                        .join(", "),
+                )
+                .unwrap(),
+            }
+        }
+
+        let headers = [
+            ConnectionHeader {
+                inner: HashSet::from([
+                    ConnectionValue::Upgrade,
+                    ConnectionValue::Close,
+                    ConnectionValue::KeepAlive,
+                ]),
+            },
+            ConnectionHeader {
+                inner: HashSet::from([ConnectionValue::Close]),
+            },
+            ConnectionHeader {
+                inner: HashSet::from([ConnectionValue::KeepAlive, ConnectionValue::Close]),
+            },
+        ];
+
+        for _ in 0..50 {
+            let rounds = 50_000;
+
+            let now = Instant::now();
+
+            for _ in 0..rounds {
+                for cheader in &headers {
+                    let header = header_with_ascii_string(cheader);
+                    assert!(!header.value.is_empty());
+                }
+            }
+
+            let elaps_ascii_string = now.elapsed();
+
+            let now = Instant::now();
+
+            for _ in 0..rounds {
+                for cheader in &headers {
+                    let header = header_with_ascii_string_2(cheader);
+                    assert!(!header.value.is_empty());
+                }
+            }
+
+            let elaps_ascii_string_2 = now.elapsed();
+
+            let now = Instant::now();
+
+            for _ in 0..rounds {
+                for cheader in &headers {
+                    let header = header_with_iter_join(cheader);
+                    assert!(!header.value.is_empty());
+                }
+            }
+
+            let elaps_iter_join = now.elapsed();
+
+            assert!(
+                elaps_ascii_string_2 <= elaps_ascii_string,
+                "elaps_ascii_string_2: {} elaps_ascii_string: {}",
+                elaps_ascii_string_2.as_micros(),
+                elaps_ascii_string.as_micros()
+            );
+
+            assert!(
+                elaps_ascii_string_2 >= elaps_iter_join,
+                "elaps_ascii_string_2: {} elaps_iter_join: {}",
+                elaps_ascii_string_2.as_micros(),
+                elaps_iter_join.as_micros()
+            );
+
+            assert!(
+                elaps_ascii_string >= elaps_iter_join,
+                "elaps_ascii_string: {} elaps_iter_join: {}",
+                elaps_ascii_string.as_micros(),
+                elaps_iter_join.as_micros()
+            );
+        }
+    }
 
     #[test]
     fn connection_header_to_header_test() {
