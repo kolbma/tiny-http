@@ -3,7 +3,9 @@ use std::hash::Hash;
 use std::io::{Result as IoResult, Write};
 use std::{cmp::Ordering, str::FromStr};
 
-use crate::{Header, HeaderField, HttpVersion, StatusCode};
+use ascii::AsciiString;
+
+use crate::{common, Header, HeaderField, HttpVersion, StatusCode};
 
 use super::date_header::DateHeader;
 use super::transfer_encoding::TransferEncoding;
@@ -163,6 +165,45 @@ pub(crate) fn update_optional_header(
     }
 }
 
+/// Get the digits of primitive number in bytes
+// should be roughly double in speed than a to_string() conversion
+macro_rules! number_to_bytes {
+    ($n:expr, $buf:expr, $buf_len:expr) => {{
+        let mut n = $n;
+        let mut digits = [0u8; $buf_len];
+        let mut idx = $buf_len;
+
+        while n > 0 {
+            idx -= 1;
+            #[allow(clippy::cast_possible_truncation, trivial_numeric_casts)]
+            // truncation intended
+            {
+                digits[idx] = (n % 10) as u8 + 48;
+            }
+            n /= 10;
+        }
+
+        // handle 0 digit
+        if n == 0 && idx == $buf_len {
+            idx -= 1;
+            digits[idx] = 48;
+        }
+
+        let len = $buf_len - idx;
+
+        for b in $buf.iter_mut() {
+            // debug_assert!(idx < $buf_len);
+            *b = digits[idx];
+            idx += 1;
+            if idx == $buf_len {
+                break;
+            }
+        }
+
+        &$buf[..len]
+    }};
+}
+
 /// preparing headers for transfer
 #[inline]
 pub(super) fn update_te_headers(
@@ -172,15 +213,18 @@ pub(super) fn update_te_headers(
 ) {
     match transfer_encoding {
         Some(TransferEncoding::Chunked) => {
-            headers.push(Header::from_bytes(b"Transfer-Encoding", b"chunked").unwrap());
+            headers.push(common::static_header::TE_CHUNKED_HEADER.clone());
         }
         Some(TransferEncoding::Identity) => {
-            assert!(data_length.is_some());
+            debug_assert!(data_length.is_some());
             let data_length = data_length.unwrap();
 
-            headers.push(
-                Header::from_bytes(b"Content-Length", data_length.to_string().as_bytes()).unwrap(),
-            );
+            let mut cl_header = common::static_header::CONTENT_LENGTH_HEADER.clone();
+            let mut buf = [0u8; 20]; // 20 is 64bit max digits
+            cl_header.value =
+                AsciiString::from_ascii(number_to_bytes!(data_length, &mut buf, 20)).unwrap();
+
+            headers.push(cl_header);
         }
         _ => {}
     };
@@ -234,11 +278,73 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, str::FromStr};
+    use std::{collections::HashSet, str::FromStr, time::Instant};
 
     use crate::{common::HeaderError, Header, HeaderField, HttpVersion};
 
     use super::*;
+
+    #[test]
+    fn number_to_bytes_bench_test() {
+        let mut b = [0u8; 20];
+        let b = number_to_bytes!(1, &mut b, 20);
+        assert_eq!(b, "1".as_bytes());
+
+        let rounds = 100_000;
+        let numbers = [
+            (32486usize, 5),
+            (19739, 5),
+            (12, 2),
+            (329, 3),
+            (2401, 4),
+            (0, 1),
+            (10_737_418_240, 11),
+        ];
+
+        let now = Instant::now();
+
+        for _ in 0..rounds {
+            for n in numbers {
+                let s = n.0.to_string();
+                let b = s.as_bytes();
+                assert_eq!(b.len(), n.1);
+                assert_eq!(
+                    std::str::from_utf8(b).unwrap().parse::<usize>().unwrap(),
+                    n.0
+                );
+            }
+        }
+
+        let elaps_string = now.elapsed();
+
+        let now = Instant::now();
+
+        for _ in 0..rounds {
+            for n in numbers {
+                let mut b = [0u8; 20];
+                let b = number_to_bytes!(n.0, &mut b, 20);
+                assert_eq!(b.len(), n.1);
+                assert_eq!(
+                    std::str::from_utf8(b).unwrap().parse::<usize>().unwrap(),
+                    n.0,
+                );
+            }
+        }
+
+        let elaps_calc = now.elapsed();
+
+        // be sure to check this out with release optimization
+        // `cargo t -r --lib response::util::tests::usize_to_byte_digits_bench_test`
+        // before thinking to_string() would be faster
+
+        assert!(
+            // elaps_calc * 10 < elaps_string * 4, // in release mode this is 99% successful
+            elaps_calc * 10 < elaps_string * 8,
+            "elaps_calc: {} elaps_string: {}",
+            elaps_calc.as_micros(),
+            elaps_string.as_micros()
+        );
+    }
 
     #[test]
     fn test_filter_header() -> Result<(), HeaderError> {
