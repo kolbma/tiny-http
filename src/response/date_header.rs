@@ -1,22 +1,32 @@
 use std::{
-    sync::{Once, OnceLock, RwLock},
+    sync::{Once, RwLock},
     thread,
     time::{Duration, Instant, SystemTime},
 };
 
 use ascii::AsciiString;
 use httpdate::HttpDate;
+use lazy_static::lazy_static;
 
 use crate::Header;
 
 /// Fixed length date and time in bytes e.g. Mon, 29 Jan 2024 22:13:01 GMT
 const DATE_TIME_SAMPLE: &[u8; 29] = b"Mon, 29 Jan 2024 22:13:01 GMT";
-/// Stores updated date and time
-static DATE_TIME: RwLock<AsciiString> = RwLock::new(AsciiString::new());
-/// Header template for cloning
-static DATE_TIME_HEADER: RwLock<Option<Header>> = RwLock::new(None);
+
+// TODO: Works with Rust >= 1.63 (replaces lazy_static below)
+// /// Stores updated date and time
+// static DATE_TIME: RwLock<AsciiString> = RwLock::new(AsciiString::new());
+// /// Header template for cloning
+// static DATE_TIME_HEADER: RwLock<Option<Header>> = RwLock::new(None);
+
+lazy_static! {
+    /// Stores updated date and time
+    static ref DATE_TIME: RwLock<AsciiString> = RwLock::new(AsciiString::new());
+    /// Header template for cloning
+    static ref DATE_TIME_HEADER: RwLock<Option<Header>> = RwLock::new(None);
+}
+
 static DATE_TIME_HEADER_ONCE: Once = Once::new();
-static DATE_TIME_THREAD: OnceLock<thread::JoinHandle<()>> = OnceLock::new();
 
 /// `DateHeader` caching for performance
 pub(super) struct DateHeader {
@@ -24,7 +34,7 @@ pub(super) struct DateHeader {
 }
 
 impl DateHeader {
-    ///
+    /// Header for _Date_ with current Http Date and Time
     #[inline]
     pub(super) fn current() -> Header {
         let mut header = Self::new().header;
@@ -42,9 +52,9 @@ impl DateHeader {
                 .unwrap()
                 .insert(Header::from_bytes(b"Date", DATE_TIME_SAMPLE).unwrap());
 
-            *DATE_TIME.write().unwrap() = AsciiString::from_ascii(DATE_TIME_SAMPLE).unwrap();
+            *DATE_TIME.write().unwrap() = AsciiString::from_ascii(&DATE_TIME_SAMPLE[..]).unwrap();
 
-            let _ = DATE_TIME_THREAD.get_or_init(|| thread::spawn(Self::timer_thread));
+            let _ = thread::spawn(Self::timer_thread);
         });
 
         Self {
