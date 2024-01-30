@@ -15,6 +15,7 @@ edition = "2018"
 rust-version = "1.60"
 
 # msrv:
+# content-type 1.70
 # native-tls 1.60
 # openssl 1.60
 # rustls 1.61
@@ -25,7 +26,7 @@ rust-version = "1.60"
 msrv = "1.60"
 
 [features]
-default = ["content-type", "log"]
+default = ["log"]
 content-type = []
 socket2 = ["dep:socket2"]
 ssl = ["ssl-openssl"]

@@ -15,7 +15,6 @@ jobs:
           - ''
         features-1-63:
           - ''
-          - --features content-type
           - --features log
           - --features socket2
           - --features ssl-openssl
@@ -31,7 +30,7 @@ jobs:
 
       - name: Clippy ${{ matrix.rust-1-63 }}
         run: |
-          cargo clippy ${{ matrix.no-default-features-1-63 }} ${{ matrix.features-1-63 }}
+          cargo clippy ${{ matrix.no-default-features-1-63 }} ${{ matrix.features-1-63 }} -- -Aunknown_lints
           cargo --version
           rustc --version
 
@@ -46,7 +45,6 @@ jobs:
           - --no-default-features
         features-1-61:
           - ''
-          - --features content-type
           - --features log
           - --features ssl-openssl
           - --features ssl-rustls
@@ -61,7 +59,7 @@ jobs:
 
       - name: Clippy 1.61
         run: |
-          cargo clippy ${{ matrix.no-default-features-1-61 }} ${{ matrix.features-1-61 }}
+          cargo clippy ${{ matrix.no-default-features-1-61 }} ${{ matrix.features-1-61 }} -- -Aunknown_lints
           cargo --version
           rustc --version
 
@@ -76,7 +74,6 @@ jobs:
           - --no-default-features
         features-1-60:
           - ''
-          - --features content-type
           - --features log
           - --features ssl-openssl
           - --features ssl-native-tls
@@ -90,7 +87,7 @@ jobs:
 
       - name: Clippy 1.60
         run: |
-          cargo clippy ${{ matrix.no-default-features-1-60 }} ${{ matrix.features-1-60 }}
+          cargo clippy ${{ matrix.no-default-features-1-60 }} ${{ matrix.features-1-60 }} -- -Aunknown_lints
           cargo --version
           rustc --version
 
@@ -105,7 +102,6 @@ jobs:
           - ''
         features:
           - ''
-          - --features content-type
           - --features log
           - --features socket2
           - --features ssl-openssl
@@ -136,7 +132,6 @@ jobs:
           - '1.60'
         features:
           - ''
-          - content-type
           - ssl-native-tls
           - ssl
     steps:
@@ -169,7 +164,6 @@ jobs:
           - '1.60'
         features:
           - ''
-          - content-type
           - log
     steps:
       - uses: actions/checkout@v4
@@ -201,7 +195,6 @@ jobs:
           - '1.61'
         features:
           - ''
-          - content-type
           - log
     steps:
       - uses: actions/checkout@v4
@@ -233,7 +226,6 @@ jobs:
           - '1.63'
         features:
           - ''
-          - content-type
           - log
           - ssl-native-tls
           - ssl-rustls
@@ -268,7 +260,6 @@ jobs:
           - '1.60'
         features:
           - ''
-          - content-type
           - log
     steps:
       - uses: actions/checkout@v4
@@ -286,4 +277,36 @@ jobs:
       - name: Test
         run: |
           cargo test --no-default-features --features ssl,${{ matrix.features }}
+          cargo --version
+
+  test_content_type:
+    name: Build & Test content-type feature
+    runs-on: ubuntu-latest
+    needs: test_log
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+        features:
+          - ''
+          - log
+          - socket2
+          - ssl-rustls
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Build
+        run: |
+          cargo build --release --no-default-features --features content-type,${{ matrix.features }}
+          cargo --version
+          rustc --version
+
+      - name: Test
+        run: |
+          cargo test --no-default-features --features content-type,${{ matrix.features }}
           cargo --version
