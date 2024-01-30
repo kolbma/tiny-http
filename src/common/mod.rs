@@ -7,7 +7,7 @@ pub use limits::Config as LimitsConfig;
 pub use method::Method;
 pub use status_code::StatusCode;
 
-mod connection_header;
+pub mod connection_header;
 #[cfg(feature = "content-type")]
 mod content_type;
 mod header;

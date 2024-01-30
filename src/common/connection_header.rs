@@ -1,13 +1,31 @@
+//! The Connection general header controls whether the network connection stays open after
+//! the current transaction finishes.  
+//! If the value sent is keep-alive, the connection is persistent and not closed,
+//! allowing for subsequent requests to the same server to be done.
+
 use ascii::{AsciiStr, AsciiString};
+use lazy_static::lazy_static;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fmt::{self, Formatter};
-use std::str::FromStr;
+
+use crate::HeaderField;
+
+lazy_static! {
+    static ref CONNECTION_HEADER_ITER: std::iter::Enumerate<std::slice::Iter<'static, ConnectionValue>> =
+        [
+            ConnectionValue::Close,
+            ConnectionValue::Upgrade,
+            ConnectionValue::KeepAlive,
+        ]
+        .iter()
+        .enumerate();
+}
 
 /// Http protocol Connection header line content
 #[derive(Debug)]
 pub struct ConnectionHeader {
-    pub(crate) inner: HashSet<ConnectionValue>,
+    inner: HashSet<ConnectionValue>,
 }
 
 impl ConnectionHeader {
@@ -16,14 +34,7 @@ impl ConnectionHeader {
     #[allow(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> ConnectionHeaderIterator<'_> {
         // priorized
-        for (idx, v) in [
-            ConnectionValue::Close,
-            ConnectionValue::Upgrade,
-            ConnectionValue::KeepAlive,
-        ]
-        .iter()
-        .enumerate()
-        {
+        for (idx, v) in CONNECTION_HEADER_ITER.clone() {
             if self.inner.contains(v) {
                 return ConnectionHeaderIterator {
                     header: self,
@@ -150,7 +161,13 @@ impl std::fmt::Display for ConnectionValue {
 
 impl From<ConnectionValue> for AsciiString {
     fn from(value: ConnectionValue) -> Self {
-        AsciiString::from_str(value.into()).unwrap()
+        match value {
+            ConnectionValue::Close => AsciiStr::from_ascii(b"close"),
+            ConnectionValue::KeepAlive => AsciiStr::from_ascii(b"keep-alive"),
+            ConnectionValue::Upgrade => AsciiStr::from_ascii(b"upgrade"),
+        }
+        .unwrap()
+        .to_ascii_string()
     }
 }
 
@@ -173,7 +190,7 @@ impl From<&ConnectionValue> for &'static str {
 impl From<ConnectionValue> for super::Header {
     fn from(value: ConnectionValue) -> Self {
         super::Header {
-            field: "Connection".parse().unwrap(),
+            field: HeaderField::from_bytes(&b"Connection"[..]).unwrap(),
             value: value.into(),
         }
     }
@@ -181,16 +198,20 @@ impl From<ConnectionValue> for super::Header {
 
 impl From<ConnectionHeader> for super::Header {
     fn from(value: ConnectionHeader) -> Self {
+        let mut ascii = AsciiString::new();
+        for v in value.iter() {
+            let s = <&str>::from(v);
+            ascii.push_str(AsciiStr::from_ascii(s.as_bytes()).unwrap());
+            ascii.push(ascii::AsciiChar::Comma);
+            ascii.push(ascii::AsciiChar::Space);
+        }
+        if !ascii.is_empty() {
+            ascii.truncate(ascii.len() - 2);
+        }
+
         super::Header {
-            field: "Connection".parse().unwrap(),
-            value: AsciiString::from_str(
-                &value
-                    .iter()
-                    .map(<&str>::from)
-                    .collect::<Vec<&str>>()
-                    .join(", "),
-            )
-            .unwrap(),
+            field: HeaderField::from_bytes(&b"Connection"[..]).unwrap(),
+            value: ascii,
         }
     }
 }

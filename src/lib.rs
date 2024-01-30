@@ -103,11 +103,11 @@ use std::{
 use client::{ClientConnection, ReadError};
 #[cfg(feature = "content-type")]
 pub use common::ContentType;
-pub use common::{limits, LimitsConfig};
 pub use common::{
-    ConnectionHeader, ConnectionValue, Header, HeaderError, HeaderField, HttpVersion,
-    HttpVersionError, Method, StatusCode,
+    connection_header, ConnectionHeader, ConnectionValue, Header, HeaderError, HeaderField,
+    HttpVersion, HttpVersionError, Method, StatusCode,
 };
+pub use common::{limits, LimitsConfig};
 use connection_stream::ConnectionStream;
 pub use request::Request;
 pub use response::Response;
