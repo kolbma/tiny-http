@@ -156,7 +156,13 @@ where
 
         // if the header is Content-Length, setting the data length
         if header.field.equiv("Content-Length") {
-            self.data_length = Some(header.value.as_bytes().len());
+            self.data_length = Some(
+                header
+                    .value
+                    .as_str()
+                    .parse::<usize>()
+                    .map_err(|_err| HeaderError::Format)?,
+            );
 
             return Ok(());
         }
