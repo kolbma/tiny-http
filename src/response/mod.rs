@@ -784,6 +784,17 @@ mod tests {
     }
 
     #[test]
+    fn test_add_content_length_header() {
+        let mut response = Response::from(200);
+
+        response
+            .add_header(Header::from_bytes(b"Content-Length", b"123456").unwrap())
+            .unwrap();
+
+        assert_eq!(response.data_length().unwrap(), 123_456_usize);
+    }
+
+    #[test]
     fn test_add_header() {
         let mut response = Response::from(200);
 
