@@ -6,7 +6,6 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{self, Cursor, Read, Result as IoResult, Write};
-use std::str::FromStr;
 use std::sync::mpsc::Receiver;
 
 use crate::common::{self, Header, HeaderError, HttpVersion, StatusCode};
@@ -101,7 +100,7 @@ where
             let _ = response.add_header(h);
         }
 
-        // dummy implementation - TODO: why dummy?
+        // dummy implementation - TODO: nothing implemented what is happening with these receivers
         if let Some(additional_headers) = additional_headers {
             for h in additional_headers {
                 let _ = response.add_header(h);
@@ -152,14 +151,12 @@ where
 
         // ignoring forbidden headers
         if Header::is_modifieable(&header.field) {
-            return Err(HeaderError);
+            return Err(HeaderError::NonModifiable);
         }
 
         // if the header is Content-Length, setting the data length
         if header.field.equiv("Content-Length") {
-            if let Ok(val) = usize::from_str(header.value.as_str()) {
-                self.data_length = Some(val);
-            }
+            self.data_length = Some(header.value.as_bytes().len());
 
             return Ok(());
         }
@@ -208,7 +205,7 @@ where
         if Header::is_modifieable(&header_field)
             || header_field.as_str().to_ascii_lowercase().as_str() == "date"
         {
-            return Err(HeaderError);
+            return Err(HeaderError::NonModifiable);
         }
 
         util::update_optional_hashset(&mut self.filter_headers, [header_field]);
