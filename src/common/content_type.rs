@@ -42,53 +42,56 @@ pub enum ContentType {
     TextXml,
 }
 
-static CONTENT_TYPES: OnceLock<HashMap<ContentType, &str>> = OnceLock::new();
+static CONTENT_TYPES: OnceLock<HashMap<ContentType, &[u8]>> = OnceLock::new();
 
-static CONTENT_TYPE_LOOKUP: OnceLock<HashMap<&str, ContentType>> = OnceLock::new();
+static CONTENT_TYPE_LOOKUP: OnceLock<HashMap<&[u8], ContentType>> = OnceLock::new();
 
 // all in lowercase!
 // same order as enum
-fn content_types() -> &'static HashMap<ContentType, &'static str> {
+fn content_types() -> &'static HashMap<ContentType, &'static [u8]> {
     CONTENT_TYPES.get_or_init(|| {
         HashMap::from([
-            (ContentType::ApplicationGzip, "application/gzip"),
-            (ContentType::ApplicationJavascript, "application/javascript"),
-            (ContentType::ApplicationJson, "application/json"),
+            (ContentType::ApplicationGzip, &b"application/gzip"[..]),
+            (
+                ContentType::ApplicationJavascript,
+                b"application/javascript",
+            ),
+            (ContentType::ApplicationJson, b"application/json"),
             (
                 ContentType::ApplicationOctetStream,
-                "application/octet-stream",
+                b"application/octet-stream",
             ),
-            (ContentType::ApplicationPdf, "application/pdf"),
-            (ContentType::ApplicationRtf, "application/rtf"),
-            (ContentType::ApplicationXhtmlXml, "application/xhtml+xml"),
+            (ContentType::ApplicationPdf, b"application/pdf"),
+            (ContentType::ApplicationRtf, b"application/rtf"),
+            (ContentType::ApplicationXhtmlXml, b"application/xhtml+xml"),
             (
                 ContentType::ApplicationX7ZCompressed,
-                "application/x-7z-compressed",
+                b"application/x-7z-compressed",
             ),
-            (ContentType::ApplicationXBzip2, "application/bzip2"),
-            (ContentType::ApplicationXml, "application/xml"),
-            (ContentType::ApplicationZip, "application/zip"),
-            (ContentType::FontOtf, "font/otf"),
-            (ContentType::FontTtf, "font/ttf"),
-            (ContentType::FontWoff, "font/woff"),
-            (ContentType::FontWoff2, "font/woff2"),
-            (ContentType::ImageGif, "image/gif"),
-            (ContentType::ImageIcon, "image/vnd.microsoft.icon"),
-            (ContentType::ImageJpeg, "image/jpeg"),
-            (ContentType::ImagePng, "image/png"),
-            (ContentType::ImageSvgXml, "image/svg+xml"),
-            (ContentType::ImageWebp, "image/webp"),
-            (ContentType::TextCsv, "text/csv"),
-            (ContentType::TextHtml, "text/html"),
-            (ContentType::TextJavascript, "text/javascript"),
-            (ContentType::TextPlain, "text/plain"),
-            (ContentType::TextPlainUtf8, "text/plain; charset=utf8"),
-            (ContentType::TextXml, "text/xml"),
+            (ContentType::ApplicationXBzip2, b"application/bzip2"),
+            (ContentType::ApplicationXml, b"application/xml"),
+            (ContentType::ApplicationZip, b"application/zip"),
+            (ContentType::FontOtf, b"font/otf"),
+            (ContentType::FontTtf, b"font/ttf"),
+            (ContentType::FontWoff, b"font/woff"),
+            (ContentType::FontWoff2, b"font/woff2"),
+            (ContentType::ImageGif, b"image/gif"),
+            (ContentType::ImageIcon, b"image/vnd.microsoft.icon"),
+            (ContentType::ImageJpeg, b"image/jpeg"),
+            (ContentType::ImagePng, b"image/png"),
+            (ContentType::ImageSvgXml, b"image/svg+xml"),
+            (ContentType::ImageWebp, b"image/webp"),
+            (ContentType::TextCsv, b"text/csv"),
+            (ContentType::TextHtml, b"text/html"),
+            (ContentType::TextJavascript, b"text/javascript"),
+            (ContentType::TextPlain, b"text/plain"),
+            (ContentType::TextPlainUtf8, b"text/plain; charset=utf8"),
+            (ContentType::TextXml, b"text/xml"),
         ])
     })
 }
 
-fn content_type_lookup() -> &'static HashMap<&'static str, ContentType> {
+fn content_type_lookup() -> &'static HashMap<&'static [u8], ContentType> {
     CONTENT_TYPE_LOOKUP.get_or_init(|| {
         let mut map = HashMap::new();
         for (k, v) in content_types() {
@@ -104,21 +107,27 @@ impl std::fmt::Display for ContentType {
     }
 }
 
-impl From<ContentType> for AsciiString {
-    fn from(value: ContentType) -> Self {
-        AsciiString::from_str(value.into()).unwrap()
-    }
-}
-
-impl From<ContentType> for &'static str {
+impl From<ContentType> for &'static [u8] {
     fn from(value: ContentType) -> Self {
         content_types().get(&value).unwrap()
     }
 }
 
+impl From<ContentType> for &'static str {
+    fn from(value: ContentType) -> Self {
+        std::str::from_utf8(<&[u8]>::from(value)).unwrap()
+    }
+}
+
 impl From<&ContentType> for &'static str {
     fn from(value: &ContentType) -> Self {
-        (*value).into()
+        Self::from(*value)
+    }
+}
+
+impl From<ContentType> for AsciiString {
+    fn from(value: ContentType) -> Self {
+        AsciiString::from_str(value.into()).unwrap()
     }
 }
 
@@ -134,6 +143,12 @@ impl From<ContentType> for super::Header {
 impl From<ContentType> for super::HeaderField {
     fn from(_: ContentType) -> Self {
         common::static_header::CONTENT_TYPE_HEADER_FIELD.clone()
+    }
+}
+
+impl From<ContentType> for super::HeaderFieldValue {
+    fn from(value: ContentType) -> Self {
+        super::HeaderFieldValue::try_from(<&[u8]>::from(value)).unwrap()
     }
 }
 
@@ -154,6 +169,15 @@ impl TryFrom<super::Header> for ContentType {
 
     fn try_from(header: super::Header) -> Result<Self, Self::Error> {
         Self::try_from(&header)
+    }
+}
+
+// TODO: implement TryFrom<&[u8]> for ContentType and convert as_bytes from &str
+impl TryFrom<&[u8]> for ContentType {
+    type Error = ();
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from(std::str::from_utf8(bytes).map_err(|_| ())?)
     }
 }
 
@@ -180,16 +204,22 @@ impl TryFrom<&str> for ContentType {
                     let charset = charset.trim().to_ascii_lowercase().replace('-', "");
                     if &charset == "utf8" {
                         let field = format!("{field}; charset={charset}");
-                        if let Some(ct) = content_type_lookup().get(field.as_str()).copied() {
+                        if let Some(ct) = content_type_lookup().get(field.as_bytes()).copied() {
                             return Ok(ct);
                         }
                     }
                 }
             }
-            return content_type_lookup().get(field).copied().ok_or(());
+            return content_type_lookup()
+                .get(field.as_bytes())
+                .copied()
+                .ok_or(());
         }
 
-        content_type_lookup().get(field).copied().ok_or(())
+        content_type_lookup()
+            .get(field.as_bytes())
+            .copied()
+            .ok_or(())
     }
 }
 
@@ -215,7 +245,8 @@ mod tests {
             assert_eq!(
                 *k,
                 ContentType::try_from(*v).unwrap(),
-                "problem: k = {k} v = {v}"
+                "problem: k = {k} v = {}",
+                std::str::from_utf8(v).unwrap()
             );
         }
     }
@@ -224,9 +255,24 @@ mod tests {
     fn content_type_lookup_test() {
         for (k, v) in content_type_lookup() {
             let content_type = ContentType::try_from(*k);
-            assert!(content_type.is_ok(), "problem: k = {} v = {}", k, v);
-            assert_eq!(*v, content_type.unwrap(), "problem: k = {k} v = {v}");
-            assert_eq!(*k, <&str>::from(v), "problem: k = {k} v = {v}");
+            assert!(
+                content_type.is_ok(),
+                "problem: k = {} v = {}",
+                std::str::from_utf8(k).unwrap(),
+                v
+            );
+            assert_eq!(
+                *v,
+                content_type.unwrap(),
+                "problem: k = {} v = {v}",
+                std::str::from_utf8(k).unwrap()
+            );
+            assert_eq!(
+                std::str::from_utf8(k).unwrap(),
+                <&str>::from(v),
+                "problem: k = {} v = {v}",
+                std::str::from_utf8(k).unwrap()
+            );
         }
     }
 

@@ -1,9 +1,10 @@
 # Changes
 
 ## Unreleased
-* MSRV is 1.60 for --no-default-features --features log and/or (ssl-native-tls or ssl)
+* MSRV is 1.60 for --default-features --features log and/or (ssl-native-tls or ssl)
   - For successful build of feature ssl-rustls Rust version >=1.61 is required
-  - For successful build of feature socket2 (default) Rust version >=1.63 is required
+  - For successful build of feature socket2 Rust version >=1.63 is required
+  - Feature content-type requires Rust >=1.70
 
 * CI is testing features with different minimum Rust versions
 
@@ -15,12 +16,26 @@
   - 431 Request Header Fields Too Large when line is over 2048 bytes
   - complete header is limited to 8192 bytes
 
+* Allowed byte range of Header restricted to HTTP standards
+
+* Improvements in performance
+
 * BREAKING CHANGE: Response-header-methods return a Result with HeaderError if the header got not added.
 
   Affected methods are add_header(), add_headers(), filter_header(), with_header(), with_headers().  
   Response.filter_header(HeaderField) prevents the HeaderField to be sent in the Response.
 
+* BREAKING CHANGE: Header.value is of type HeaderFieldValue
+
+  Can be constructed similar to Header.field or Header.
+
+* BREAKING CHANGE: Request::body_length is deprecated and renamed to Request::content_length
+
+* BREAKING CHANGE: Response: some methods return an `Option<Vec>` with `None` instead of empty `Vec` 
+
 * BREAKING CHANGE: ServerConfig has field ssl for SslConfig only when any ssl feature is enabled.
+
+* BREAKING CHANGE: `ServerConfig` got a field limits `LimitsConfig` to configure these limits.
 
 * New feature _native-tls_
 
@@ -33,6 +48,8 @@
 * New example _router_ how route and response handling could be implemented
 
 * New example _socket-config-server_ to configure socket
+
+* Working Websockets example
 
 ## 0.12.0
 * Bumped the minimum compiler version tested by CI to 1.56 - this is necessary due to an increasing number of dependencies

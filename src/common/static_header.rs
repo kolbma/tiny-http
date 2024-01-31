@@ -1,12 +1,17 @@
-use ascii::AsciiString;
 use lazy_static::lazy_static;
 
-use crate::{Header, HeaderField};
+use crate::{Header, HeaderField, HeaderFieldValue};
 
 lazy_static! {
+    pub(crate) static ref CONNECTION_HEADER: Header = Header {
+        field: CONNECTION_HEADER_FIELD.clone(),
+        value: HeaderFieldValue::from_bytes(&b""[..]).unwrap()
+    };
+    pub(crate) static ref CONNECTION_HEADER_FIELD: HeaderField =
+        HeaderField::from_bytes(&b"Connection"[..]).unwrap();
     pub(crate) static ref CONTENT_LENGTH_HEADER: Header = Header {
         field: CONTENT_LENGTH_HEADER_FIELD.clone(),
-        value: AsciiString::new()
+        value: HeaderFieldValue::from_bytes(&b""[..]).unwrap()
     };
     pub(crate) static ref CONTENT_LENGTH_HEADER_FIELD: HeaderField =
         HeaderField::from_bytes(&b"Content-Length"[..]).unwrap();

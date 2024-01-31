@@ -4,7 +4,7 @@ use std::io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use ascii::{AsciiChar, AsciiStr, AsciiString};
+use ascii::AsciiString;
 
 use crate::common::{HttpVersion, Method};
 use crate::response::Standard::{
@@ -132,12 +132,13 @@ impl ClientConnection {
     ///
     /// The overall header limit is 8K.
     /// The limit per header line is 2K.
-    fn read_next_line(&mut self) -> Result<AsciiString, ReadError> {
-        let mut buf = Vec::new();
+    fn read_next_line(&mut self, buf: &mut Vec<u8>) -> Result<bool, ReadError> {
         let mut bytes = [0u8; limits::HEADER_READER_BUF_SIZE];
         let mut limit = 0;
+        let mut space_only = true;
         let mut w = 0_usize;
 
+        buf.clear();
         let reader = self.next_header_source.by_ref();
 
         loop {
@@ -151,7 +152,10 @@ impl ClientConnection {
                 _ => {}
             }
 
-            if bytes[w] == NL {
+            let b = bytes[w];
+
+            #[allow(clippy::manual_range_contains)]
+            if b == NL {
                 if w > 0 && bytes[w - 1] == CR {
                     let n = w - 1;
                     limit += n;
@@ -164,6 +168,13 @@ impl ClientConnection {
                     log::debug!("missing 2-byte compliant <CR><NL>");
                 }
                 break;
+            } else if b != CR && (b < 32 || b > 127) {
+                return Err(ReadError::ReadIoError(IoError::new(
+                    IoErrorKind::InvalidInput,
+                    "header no ascii",
+                )));
+            } else if space_only && b != 32 {
+                space_only = false;
             }
 
             if w < HEADER_READER_BUF_MAX_IDX {
@@ -176,10 +187,7 @@ impl ClientConnection {
             }
         }
 
-        AsciiString::from_ascii(buf).map_err(|_| {
-            log::debug!("header no ascii");
-            ReadError::ReadIoError(IoError::new(IoErrorKind::InvalidInput, "header no ascii"))
-        })
+        Ok(!space_only)
     }
 
     /// Reads a request from the stream.
@@ -189,11 +197,12 @@ impl ClientConnection {
     /// The limit per header line is 2K.
     fn read_request(&mut self) -> Result<Request, ReadError> {
         let (method, path, version, headers) = {
-            let mut header_limit_rest = 8_192_usize;
+            let mut header_limit_rest = self.limits.header_max_size;
+            let mut line_buf = Vec::new();
 
             // reading the request line
             let (method, path, version) = {
-                let line = self.read_next_line().map_err(|err| {
+                let is_line_ok = self.read_next_line(&mut line_buf).map_err(|err| {
                     match err {
                         ReadError::HttpProtocol(v, RequestHeaderFieldsTooLarge431) => {
                             // match to 414 URI Too Long for request line
@@ -203,7 +212,20 @@ impl ClientConnection {
                     }
                 })?;
 
-                header_limit_rest = header_limit_rest.checked_sub(line.len()).ok_or(
+                if !is_line_ok {
+                    return Err(ReadError::WrongRequestLine);
+                }
+
+                let line_len = line_buf.len();
+
+                if line_len == 0 {
+                    return Err(ReadError::ReadIoError(IoError::new(
+                        IoErrorKind::TimedOut,
+                        "no header",
+                    )));
+                }
+
+                header_limit_rest = header_limit_rest.checked_sub(line_len).ok_or(
                     // Request Header Fields Too Large
                     ReadError::HttpProtocol(
                         HttpVersion::Version1_0,
@@ -211,34 +233,31 @@ impl ClientConnection {
                     ),
                 )?;
 
-                if line.is_empty() {
-                    return Err(ReadError::ReadIoError(IoError::new(
-                        IoErrorKind::TimedOut,
-                        "no header",
-                    )));
-                }
-
-                parse_request_line(line.trim())?
+                parse_request_line(&line_buf)?
             };
 
             // getting all headers
             let headers = {
                 let mut headers = Vec::new();
                 loop {
-                    let line = self.read_next_line()?;
+                    let is_line_ok = self.read_next_line(&mut line_buf)?;
 
-                    header_limit_rest = header_limit_rest.checked_sub(line.len()).ok_or(
+                    if !is_line_ok {
+                        return Err(ReadError::WrongHeader(version));
+                    }
+
+                    let line_len = line_buf.len();
+
+                    if line_len == 0 {
+                        break;
+                    }
+
+                    header_limit_rest = header_limit_rest.checked_sub(line_len).ok_or(
                         // Request Header Fields Too Large
                         ReadError::HttpProtocol(version, RequestHeaderFieldsTooLarge431),
                     )?;
 
-                    let line = line.trim();
-
-                    if line.is_empty() {
-                        break;
-                    }
-
-                    headers.push(match Header::try_from(line) {
+                    headers.push(match Header::try_from(line_buf.as_slice()) {
                         Ok(h) => h,
                         _ => return Err(ReadError::WrongHeader(version)),
                     });
@@ -266,7 +285,7 @@ impl ClientConnection {
             self.limits.content_buffer_size,
             headers,
             method,
-            path.to_string(),
+            String::from(path), // no cloning this way
             self.secure,
             version,
             *self.remote_addr.as_ref().unwrap(),
@@ -533,11 +552,14 @@ impl From<(request::CreateError, HttpVersion)> for ReadError {
 /// Parses the request line of the request.
 /// eg. GET / HTTP/1.1
 /// At the moment supporting 0.9, 1.0, 1.1
-fn parse_request_line(line: &AsciiStr) -> Result<(Method, AsciiString, HttpVersion), ReadError> {
-    let mut parts = line.split(AsciiChar::Space);
+fn parse_request_line(line: &[u8]) -> Result<(Method, AsciiString, HttpVersion), ReadError> {
+    let mut parts = line.split(|b| *b == 32);
 
-    let method = parts.next().map(Method::from);
-    let path = parts.next().map(ToOwned::to_owned);
+    let method = parts
+        .next()
+        .map(Method::from)
+        .ok_or(ReadError::WrongRequestLine)?;
+    let path = parts.next().ok_or(ReadError::WrongRequestLine)?;
     let version = parts
         .next()
         .map(|w| {
@@ -553,32 +575,41 @@ fn parse_request_line(line: &AsciiStr) -> Result<(Method, AsciiString, HttpVersi
         })
         .ok_or(ReadError::WrongRequestLine)??;
 
-    method
-        .and_then(|method| Some((method, path?, version)))
-        .ok_or(ReadError::WrongRequestLine)
+    if parts.next().is_some() {
+        // more spaces than allowed
+        return Err(ReadError::WrongRequestLine);
+    }
+
+    Ok((
+        method,
+        AsciiString::from_ascii(path).map_err(|err| {
+            // shouldn't happen because checked already in read_next_line()
+            ReadError::ReadIoError(IoError::new(IoErrorKind::InvalidInput, err.ascii_error()))
+        })?,
+        version,
+    ))
 }
 
 #[cfg(test)]
 mod test {
-
-    use ascii::AsAsciiStr;
-
     use crate::HttpVersion;
 
     #[test]
     fn parse_request_line_test() {
-        let (method, path, ver) =
-            super::parse_request_line("GET /hello HTTP/1.1".as_ascii_str().unwrap()).unwrap();
+        let (method, path, ver) = super::parse_request_line(&b"GET /hello HTTP/1.1"[..]).unwrap();
 
         assert!(method == crate::Method::Get);
         assert!(path == "/hello");
         assert!(ver == HttpVersion::Version1_1);
 
-        assert!(super::parse_request_line("GET /hello".as_ascii_str().unwrap()).is_err());
-        assert!(super::parse_request_line("qsd qsd qsd".as_ascii_str().unwrap()).is_err());
+        assert!(super::parse_request_line(&b"GET /hello"[..]).is_err());
+        assert!(super::parse_request_line(&b"qsd qsd qsd"[..]).is_err());
+        assert!(super::parse_request_line(&b" GET /hello HTTP/1.1"[..]).is_err());
+        assert!(super::parse_request_line(&b"GET /hello HTTP/1.1 "[..]).is_err());
+        assert!(super::parse_request_line(&b"GET   /hello HTTP/1.1"[..]).is_err());
+        assert!(super::parse_request_line(&b"GET /hello   HTTP/1.1"[..]).is_err());
 
-        let (method, _, _) =
-            super::parse_request_line("loGET /hello HTTP/1.1".as_ascii_str().unwrap()).unwrap();
+        let (method, _, _) = super::parse_request_line(&b"loGET /hello HTTP/1.1"[..]).unwrap();
         assert_eq!(
             method,
             crate::Method::NonStandard(Some("loGET".parse().unwrap()))

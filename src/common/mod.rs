@@ -1,7 +1,7 @@
 pub use connection_header::{ConnectionHeader, ConnectionValue};
 #[cfg(feature = "content-type")]
 pub use content_type::ContentType;
-pub use header::{Header, HeaderError, HeaderField};
+pub use header::{Header, HeaderError, HeaderField, HeaderFieldValue};
 pub use http_version::{HttpVersion, HttpVersionError};
 pub use limits::Config as LimitsConfig;
 pub use method::Method;

@@ -1,14 +1,14 @@
 use std::{convert::TryFrom, str::FromStr};
 
-use ascii::{AsciiChar, AsciiStr, AsciiString, FromAsciiError};
+use ascii::{AsAsciiStrError, AsciiStr, AsciiString};
 
 /// Represents a HTTP header.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Header {
-    /// `field` of [Header]
+    /// `field` of ['Header']
     pub field: HeaderField,
-    /// `value` for [HeaderField]
-    pub value: AsciiString,
+    /// `value` ['HeaderFieldValue'] for ['HeaderField']
+    pub value: HeaderFieldValue,
 }
 
 impl Header {
@@ -16,23 +16,18 @@ impl Header {
     ///
     /// # Errors
     ///
-    /// - mapped `FromAsciiError` for `header`
-    /// - mapped `FromAsciiError` for `value`
+    /// An [`HeaderError`] is caused by content with invalid range of ASCII.
     ///
     /// # Examples
     ///
     /// ```
     /// let header = tiny_http::Header::from_bytes(b"Content-Type", b"text/plain").unwrap();
     /// ```
-    #[allow(clippy::result_unit_err)]
-    pub fn from_bytes(header: &[u8], value: &[u8]) -> Result<Header, ()> {
-        let header = HeaderField::from_bytes(header).or(Err(()))?;
-        let value = AsciiString::from_ascii(value).or(Err(()))?;
+    pub fn from_bytes(field: &[u8], value: &[u8]) -> Result<Header, HeaderError> {
+        let field = HeaderField::from_bytes(field)?;
+        let value = HeaderFieldValue::from_bytes(value)?;
 
-        Ok(Header {
-            field: header,
-            value,
-        })
+        Ok(Header { field, value })
     }
 
     /// `true` if `[Header]` `field` can be added and modified
@@ -46,18 +41,7 @@ impl FromStr for Header {
     type Err = HeaderError;
 
     fn from_str(input: &str) -> Result<Header, HeaderError> {
-        let mut elems = input.splitn(2, ':');
-
-        let field = elems
-            .next()
-            .and_then(|f| f.parse().ok())
-            .ok_or(HeaderError)?;
-        let value = elems
-            .next()
-            .and_then(|v| AsciiString::from_ascii(v.trim()).ok())
-            .ok_or(HeaderError)?;
-
-        Ok(Header { field, value })
+        Self::try_from(input.as_bytes())
     }
 }
 
@@ -67,52 +51,121 @@ impl std::fmt::Display for Header {
     }
 }
 
-impl TryFrom<&AsciiStr> for Header {
-    type Error = ();
+impl TryFrom<&[u8]> for Header {
+    type Error = HeaderError;
 
-    fn try_from(input: &AsciiStr) -> Result<Self, Self::Error> {
-        let field_s = input.split(AsciiChar::Colon).next();
-        let field = field_s
-            .and_then(|f| HeaderField::try_from(f).ok())
-            .ok_or(())?;
+    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
+        let mut after_colon_pos = 0_usize;
+        for b in input {
+            after_colon_pos += 1;
+            if *b == b':' {
+                break;
+            }
+        }
 
-        let value = input[(field_s.unwrap().len() + 1)..].trim().to_owned();
+        let input_len = input.len();
+
+        if after_colon_pos == 0 || after_colon_pos == input_len {
+            return Err(HeaderError::Format);
+        }
+
+        let field = HeaderField::try_from(&input[0..(after_colon_pos - 1)])?;
+
+        let mut first_non_space = after_colon_pos;
+        for b in &input[after_colon_pos..] {
+            if *b != b' ' {
+                break;
+            }
+            first_non_space += 1;
+        }
+
+        let mut last_non_space = input_len - 1;
+
+        #[allow(clippy::mut_range_bound, clippy::needless_range_loop)]
+        for n in last_non_space..first_non_space {
+            if input[n] != b' ' {
+                break;
+            }
+
+            last_non_space = n; // intention
+        }
+
+        debug_assert!(
+            first_non_space <= last_non_space,
+            "input: {:?} {} [{} <= {} ?]",
+            &input,
+            std::str::from_utf8(input).unwrap(),
+            first_non_space,
+            last_non_space
+        );
+
+        let value = HeaderFieldValue::try_from(&input[first_non_space..=last_non_space])?;
 
         Ok(Header { field, value })
     }
 }
 
-/// Field of a header (eg. `Content-Type`, `Content-Length`, etc.)
+impl TryFrom<&AsciiStr> for Header {
+    type Error = HeaderError;
+
+    fn try_from(input: &AsciiStr) -> Result<Self, Self::Error> {
+        Self::try_from(input.as_bytes())
+    }
+}
+
+/// Field of an header (eg. `Content-Type`, `Content-Length`, etc.)
 ///
 /// Comparison between two `HeaderField`s ignores case.
 #[derive(Debug, Clone, Eq)]
-pub struct HeaderField(AsciiString);
+pub struct HeaderField(pub(self) AsciiString);
 
 impl HeaderField {
-    /// Create `[HeaderField]` from `bytes`
+    /// Create [`HeaderField`] from `bytes`
     ///
     /// # Errors
     ///
-    /// - `FromAsciiError` for `bytes` conversion
+    /// - [`HeaderError`] for `bytes` conversion
     ///
-    pub fn from_bytes<B>(bytes: B) -> Result<HeaderField, FromAsciiError<B>>
+    pub fn from_bytes<B>(bytes: B) -> Result<HeaderField, HeaderError>
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
     {
-        AsciiString::from_ascii(bytes).map(HeaderField)
+        for b in bytes.as_ref() {
+            if *b < 33 || *b >= 127 {
+                return Err(HeaderError::Range);
+            }
+        }
+
+        Ok(HeaderField(
+            AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
+        ))
     }
 
-    /// Get `[HeaderField]` as `&AsciiStr`
+    /// Get [`HeaderField`] as `&[u8]`
     #[must_use]
     #[inline]
-    pub fn as_str(&self) -> &AsciiStr {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    /// Get [`HeaderField`] as `&AsciiStr`
+    #[must_use]
+    #[inline]
+    pub fn as_ascii_str(&self) -> &AsciiStr {
         &self.0
     }
 
-    /// Checks `[HeaderField]` for equivalence ignoring case of letters
+    /// Get [`HeaderField`] as `&str`
+    #[must_use]
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// Checks [`HeaderField`] for equivalence ignoring case of letters
     #[must_use]
     pub fn equiv(&self, other: &'static str) -> bool {
-        other.eq_ignore_ascii_case(self.as_str().as_str())
+        other.eq_ignore_ascii_case(self.as_str())
     }
 }
 
@@ -120,26 +173,45 @@ impl FromStr for HeaderField {
     type Err = HeaderError;
 
     fn from_str(s: &str) -> Result<HeaderField, HeaderError> {
-        if s.contains(char::is_whitespace) {
-            Err(HeaderError)
-        } else {
-            AsciiString::from_ascii(s)
-                .map(HeaderField)
-                .map_err(|_| HeaderError)
+        Self::try_from(s.as_bytes())
+    }
+}
+
+impl TryFrom<&[u8]> for HeaderField {
+    type Error = HeaderError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        for b in bytes {
+            if *b < 33 || *b >= 127 {
+                return Err(HeaderError::Range);
+            }
         }
+
+        Ok(HeaderField(
+            AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
+        ))
     }
 }
 
 impl TryFrom<&AsciiStr> for HeaderField {
-    type Error = ();
+    type Error = HeaderError;
 
     fn try_from(asciistr: &AsciiStr) -> Result<Self, Self::Error> {
-        for asciichar in asciistr {
-            if *asciichar == AsciiChar::Space {
-                return Err(());
+        Self::try_from(asciistr.to_ascii_string())
+    }
+}
+
+impl TryFrom<AsciiString> for HeaderField {
+    type Error = HeaderError;
+
+    fn try_from(ascii_string: AsciiString) -> Result<Self, Self::Error> {
+        for b in ascii_string.as_bytes() {
+            if *b < 33 || *b >= 127 {
+                return Err(HeaderError::Range);
             }
         }
-        Ok(Self(asciistr.to_owned()))
+
+        Ok(HeaderField(ascii_string))
     }
 }
 
@@ -151,8 +223,8 @@ impl std::fmt::Display for HeaderField {
 
 impl PartialEq for HeaderField {
     fn eq(&self, other: &HeaderField) -> bool {
-        let self_str: &str = self.as_str().as_ref();
-        let other_str = other.as_str().as_ref();
+        let self_str: &str = self.as_str();
+        let other_str = other.as_str();
         self_str.eq_ignore_ascii_case(other_str)
     }
 }
@@ -163,13 +235,148 @@ impl std::hash::Hash for HeaderField {
     }
 }
 
+/// Value for an header field
+///
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct HeaderFieldValue(AsciiString);
+
+impl HeaderFieldValue {
+    /// Create [`HeaderFieldValue`] from `bytes`
+    ///
+    /// # Errors
+    ///
+    /// - [`HeaderError`] for `bytes` conversion
+    ///
+    pub fn from_bytes<B>(bytes: B) -> Result<HeaderFieldValue, HeaderError>
+    where
+        B: Into<Vec<u8>> + AsRef<[u8]>,
+    {
+        for b in bytes.as_ref() {
+            if *b < 32 || *b >= 127 {
+                return Err(HeaderError::Range);
+            }
+        }
+
+        Ok(HeaderFieldValue(
+            AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
+        ))
+    }
+
+    /// Get [`HeaderFieldValue`] as `&[u8]`
+    #[must_use]
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    /// Get [`HeaderFieldValue`] as `&AsciiStr`
+    #[must_use]
+    #[inline]
+    pub fn as_ascii_str(&self) -> &AsciiStr {
+        &self.0
+    }
+
+    /// Get [`HeaderFieldValue`] as `&str`
+    #[must_use]
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// Create [`HeaderFieldValue`] from existing `AsciiString`
+    pub(crate) fn from_ascii_unchecked(ascii_string: AsciiString) -> HeaderFieldValue {
+        Self(ascii_string)
+    }
+}
+
+impl FromStr for HeaderFieldValue {
+    type Err = HeaderError;
+
+    fn from_str(s: &str) -> Result<HeaderFieldValue, HeaderError> {
+        Self::try_from(s.as_bytes())
+    }
+}
+
+impl TryFrom<&[u8]> for HeaderFieldValue {
+    type Error = HeaderError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        for b in bytes {
+            if *b < 32 || *b >= 127 {
+                return Err(HeaderError::Range);
+            }
+        }
+
+        Ok(HeaderFieldValue(
+            AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
+        ))
+    }
+}
+
+impl TryFrom<&AsciiStr> for HeaderFieldValue {
+    type Error = HeaderError;
+
+    fn try_from(asciistr: &AsciiStr) -> Result<Self, Self::Error> {
+        Self::try_from(asciistr.to_ascii_string())
+    }
+}
+
+impl TryFrom<AsciiString> for HeaderFieldValue {
+    type Error = HeaderError;
+
+    fn try_from(ascii_string: AsciiString) -> Result<Self, Self::Error> {
+        for b in ascii_string.as_bytes() {
+            if *b < 32 || *b >= 127 {
+                return Err(HeaderError::Range);
+            }
+        }
+
+        Ok(HeaderFieldValue(ascii_string))
+    }
+}
+
+impl std::fmt::Display for HeaderFieldValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl PartialEq<&[u8]> for HeaderFieldValue {
+    fn eq(&self, other: &&[u8]) -> bool {
+        self.0.as_bytes() == *other
+    }
+}
+
+impl PartialEq<&str> for HeaderFieldValue {
+    fn eq(&self, other: &&str) -> bool {
+        self.0.as_str() == *other
+    }
+}
+
+impl std::ops::Deref for HeaderFieldValue {
+    type Target = AsciiString;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 // Needs to be lower-case!!!
 pub(crate) const HEADER_FORBIDDEN: &[&str] =
     &["connection", "trailer", "transfer-encoding", "upgrade"];
 
 /// Header was not added
 #[derive(Debug)]
-pub struct HeaderError;
+pub enum HeaderError {
+    /// Value is not completly in ASCII range
+    Ascii(AsAsciiStrError),
+    /// Provided data is no valid [`Header`] line
+    Format,
+    /// It is not possible to change the specific [`Header`]
+    NonModifiable,
+    /// Provided data could be ASCII but is not in a more restrictive range
+    Range,
+}
 
 impl std::error::Error for HeaderError {}
 

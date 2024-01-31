@@ -4,8 +4,6 @@ use std::io::{self, Cursor, ErrorKind as IoErrorKind, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
-use ascii::AsciiString;
-
 use crate::response::Standard::Continue100;
 use crate::stream_traits::{DataRead, DataReadWrite};
 use crate::util::{EqualReader, FusedReader, NotifyOnDrop};
@@ -646,7 +644,7 @@ struct SearchHeader<'a> {
     #[cfg(feature = "content-type")]
     content_type: Option<crate::ContentType>,
     expect_continue: bool,
-    transfer_encoding: Option<&'a AsciiString>,
+    transfer_encoding: Option<&'a [u8]>,
 }
 
 impl<'a> SearchHeader<'a> {
@@ -687,7 +685,7 @@ impl<'a> SearchHeader<'a> {
                 }
                 found_headers |= 4;
             } else if f.equiv("Transfer-Encoding") {
-                search_header.transfer_encoding = Some(&header.value);
+                search_header.transfer_encoding = Some(header.value.as_bytes());
                 found_headers |= 8;
             }
 
