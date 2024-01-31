@@ -105,7 +105,7 @@ use client::{ClientConnection, ReadError};
 pub use common::ContentType;
 pub use common::{
     connection_header, ConnectionHeader, ConnectionValue, Header, HeaderError, HeaderField,
-    HttpVersion, HttpVersionError, Method, StatusCode,
+    HeaderFieldValue, HttpVersion, HttpVersionError, Method, StatusCode,
 };
 pub use common::{limits, LimitsConfig};
 use connection_stream::ConnectionStream;
@@ -526,7 +526,6 @@ impl Server {
                         log::error!("error on connection accept: {err:?}");
                         #[cfg(not(feature = "log"))]
                         eprintln!("error on connection accept: {err:?}");
-                        // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                         let _ = err;
                     }
@@ -591,7 +590,6 @@ impl Server {
                                 Ok(s) => s,
                                 Err(err) => {
                                     log::warn!("ssl handshake failed: {}", err);
-                                    // TODO: how to handle these errors?!
                                     inside_messages
                                         .push(IoError::new(IoErrorKind::Other, err).into());
                                     continue;
@@ -615,7 +613,6 @@ impl Server {
                         log::error!("error on connection accept: {err:?}");
                         #[cfg(not(feature = "log"))]
                         eprintln!("error on connection accept: {err:?}");
-                        // TODO: how to handle these errors?!
                         inside_messages.push(err.into());
                     }
                 };
@@ -636,7 +633,7 @@ impl Drop for Server {
             ListenAddr::IP(addr) => TcpStream::connect(addr).map(ConnectionStream::from),
             #[cfg(unix)]
             ListenAddr::Unix(addr) => {
-                // TODO: use connect_addr when its stabilized.
+                // TODO: use connect_addr when its stabilized (since 1.70).
                 let path = addr.as_pathname().unwrap();
                 std::os::unix::net::UnixStream::connect(path).map(ConnectionStream::from)
             }

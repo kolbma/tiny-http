@@ -1,9 +1,8 @@
 #![allow(missing_docs, unused_crate_dependencies)]
 
-use ascii::AsciiString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tiny_http::{Header, Response, Server};
+use tiny_http::{Header, HeaderFieldValue, Response, Server};
 
 fn get_content_type(path: &Path) -> &'static str {
     let extension = match path.extension() {
@@ -79,7 +78,7 @@ fn main() {
                     let response = response
                         .with_header(Header {
                             field: "Content-Type".parse().unwrap(),
-                            value: AsciiString::from_ascii(get_content_type(&path)).unwrap(),
+                            value: HeaderFieldValue::from_bytes(get_content_type(&path)).unwrap(),
                         })
                         .unwrap();
 
