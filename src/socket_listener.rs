@@ -69,7 +69,7 @@ pub enum ConfigListenAddr {
     IP(Vec<SocketAddr>),
     /// [PathBuf] for `Unix`socket
     #[cfg(unix)]
-    // TODO: use SocketAddr when bind_addr is stabilized
+    // TODO: use SocketAddr when bind_addr is stabilized (since 1.70)
     Unix(PathBuf),
 }
 
