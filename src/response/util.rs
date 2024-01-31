@@ -1,11 +1,10 @@
+use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::hash::Hash;
 use std::io::{Result as IoResult, Write};
-use std::{cmp::Ordering, str::FromStr};
 
-use ascii::AsciiString;
-
-use crate::{common, Header, HeaderField, HttpVersion, StatusCode};
+use crate::{common, Header, HeaderField, HeaderFieldValue, HttpVersion, StatusCode};
 
 use super::date_header::DateHeader;
 use super::transfer_encoding::TransferEncoding;
@@ -40,7 +39,7 @@ pub(super) fn choose_transfer_encoding(
             // getting the corresponding TransferEncoding
             if h.field.equiv("TE") {
                 // getting list of requested elements
-                let mut parse = util::parse_header_value(h.value.as_str()); // TODO: remove conversion
+                let mut parse = util::parse_header_value(&h.value);
 
                 // sorting elements by most priority
                 parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
@@ -52,7 +51,7 @@ pub(super) fn choose_transfer_encoding(
                         continue;
                     }
 
-                    if let Ok(te) = TransferEncoding::from_str(value.0) {
+                    if let Ok(te) = TransferEncoding::try_from(value.0) {
                         return Some(te);
                     }
                 }
@@ -222,7 +221,7 @@ pub(super) fn update_te_headers(
             let mut cl_header = common::static_header::CONTENT_LENGTH_HEADER.clone();
             let mut buf = [0u8; 20]; // 20 is 64bit max digits
             cl_header.value =
-                AsciiString::from_ascii(number_to_bytes!(data_length, &mut buf, 20)).unwrap();
+                HeaderFieldValue::try_from(number_to_bytes!(data_length, &mut buf, 20)).unwrap();
 
             headers.push(cl_header);
         }
@@ -242,14 +241,15 @@ pub(super) fn write_message_header<W>(
 where
     W: Write,
 {
-    // writing status line
-    write!(
-        writer,
-        "{} {} {}\r\n",
-        http_version.header(),
-        status_code.0,
-        status_code.default_reason_phrase()
-    )?;
+    let mut status_line = [b' '; 15 + 31]; // 31 is longest reasonphrase
+    status_line[0..8].copy_from_slice(http_version.header().as_bytes());
+    let _ = number_to_bytes!(status_code.0, status_line[9..12], 3);
+    let phrase = status_code.default_reason_phrase();
+    let phrase_end = phrase.len() + 13;
+    status_line[13..phrase_end].copy_from_slice(phrase.as_bytes());
+    status_line[phrase_end..(phrase_end + 2)].copy_from_slice(&[b'\r', b'\n']);
+
+    writer.write_all(&status_line[0..(phrase_end + 2)])?;
 
     // writing headers
     let header_iter = if let Some(headers) = headers {
@@ -264,14 +264,14 @@ where
             }
         }
 
-        writer.write_all(header.field.as_str().as_bytes())?;
-        write!(writer, ": ")?;
+        writer.write_all(header.field.as_bytes())?;
+        writer.write_all(&[b':', b' '])?;
         writer.write_all(header.value.as_str().as_bytes())?;
-        write!(writer, "\r\n")?;
+        writer.write_all(&[b'\r', b'\n'])?;
     }
 
     // separator between header and data
-    write!(writer, "\r\n")?;
+    writer.write_all(&[b'\r', b'\n'])?;
 
     Ok(())
 }
@@ -361,9 +361,7 @@ mod tests {
                 DateHeader::current(),
                 Header::from_bytes(b"Server", b"tiny-http").unwrap(),
             ]),
-            &Some(HashSet::from([
-                HeaderField::from_bytes(&b"Date"[..]).map_err(|_| HeaderError)?
-            ])),
+            &Some(HashSet::from([HeaderField::from_bytes(&b"Date"[..])?])),
         );
         assert!(result.is_ok());
 
