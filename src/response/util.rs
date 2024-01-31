@@ -202,6 +202,7 @@ macro_rules! number_to_bytes {
         &$buf[..len]
     }};
 }
+pub(crate) use number_to_bytes;
 
 /// preparing headers for transfer
 #[inline]
