@@ -110,7 +110,7 @@ pub use common::{
 pub use common::{limits, LimitsConfig};
 use connection_stream::ConnectionStream;
 pub use request::Request;
-pub use response::Response;
+pub use response::{Response, ResponseBox};
 pub use server_config::ServerConfig;
 use server_config::CONNECTION_LIMIT_SLEEP_DURATION;
 pub use socket_config::SocketConfig;
