@@ -31,7 +31,7 @@ fn main() {
     let _ = response_json.add_header("Server: t".parse::<Header>().unwrap());
 
     let mut response_text = response_json.clone();
-    let _ = response_text.add_header("Content-Type: plain/text".parse::<Header>().unwrap());
+    let _ = response_text.add_header("Content-Type: text/plain".parse::<Header>().unwrap());
 
     for _ in 0..num_cpus::get() {
         let server = server.clone();
