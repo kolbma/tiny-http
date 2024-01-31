@@ -128,3 +128,20 @@ impl PartialOrd<StatusCode> for u16 {
         self.partial_cmp(&other.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn biggest_reasonphrase_len_test() {
+        for n in 100..600 {
+            let status_code = StatusCode(n);
+            assert!(
+                status_code.default_reason_phrase().len() <= 31,
+                "write_message_header needs adjustment for longer phrase: {}",
+                status_code.default_reason_phrase().len()
+            );
+        }
+    }
+}
