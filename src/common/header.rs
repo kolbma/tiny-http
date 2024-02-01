@@ -420,7 +420,7 @@ mod test {
 
     #[test]
     fn field_converter_byte_range_check_test() {
-        assert!(HeaderField::from_bytes(b"user@host").is_err());
+        assert!(HeaderField::from_bytes(&b"user@host"[..]).is_err());
         assert!("user@host".parse::<HeaderField>().is_err());
         assert!(HeaderField::try_from(&b"user@host"[..]).is_err());
         assert!(HeaderField::try_from(AsciiStr::from_ascii("user@host").unwrap()).is_err());
@@ -429,7 +429,7 @@ mod test {
 
     #[test]
     fn field_value_converter_byte_range_check_test() {
-        assert!(HeaderFieldValue::from_bytes(b"\n").is_err());
+        assert!(HeaderFieldValue::from_bytes(&b"\n"[..]).is_err());
         assert!("\n".parse::<HeaderFieldValue>().is_err());
         assert!(HeaderFieldValue::try_from(&b"\n"[..]).is_err());
         assert!(HeaderFieldValue::try_from(AsciiStr::from_ascii("\n").unwrap()).is_err());
