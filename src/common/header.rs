@@ -130,11 +130,8 @@ impl HeaderField {
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
     {
-        for b in bytes.as_ref() {
-            if *b < 33 || *b >= 127 {
-                return Err(HeaderError::Range);
-            }
-        }
+        let bytes = bytes.into();
+        field_byte_range_check(&bytes)?;
 
         Ok(HeaderField(
             AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
@@ -169,10 +166,31 @@ impl HeaderField {
     }
 }
 
+/// Checks `bytes` for valid byte range for field names as
+/// defined in [RFC9110](https://datatracker.ietf.org/doc/html/rfc9110#name-tokens)
+#[inline]
+fn field_byte_range_check(bytes: &[u8]) -> Result<(), HeaderError> {
+    for &b in bytes {
+        // Ordered to most used in header fields
+        #[allow(clippy::manual_range_contains)]
+        if (b >= 94 && b <= 122)
+            || (b >= 65 && b <= 90)
+            || b == 45
+            || (b >= 48 && b <= 57)
+            || ([33, 35, 36, 37, 38, 39, 42, 43, 46].contains(&b))
+        {
+            continue;
+        }
+        return Err(HeaderError::Range);
+    }
+    Ok(())
+}
+
 impl FromStr for HeaderField {
     type Err = HeaderError;
 
     fn from_str(s: &str) -> Result<HeaderField, HeaderError> {
+        // be sure to check byte range if this is changed
         Self::try_from(s.as_bytes())
     }
 }
@@ -181,11 +199,7 @@ impl TryFrom<&[u8]> for HeaderField {
     type Error = HeaderError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        for b in bytes {
-            if *b < 33 || *b >= 127 {
-                return Err(HeaderError::Range);
-            }
-        }
+        field_byte_range_check(bytes)?;
 
         Ok(HeaderField(
             AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
@@ -197,6 +211,7 @@ impl TryFrom<&AsciiStr> for HeaderField {
     type Error = HeaderError;
 
     fn try_from(asciistr: &AsciiStr) -> Result<Self, Self::Error> {
+        // be sure to check byte range if this is changed
         Self::try_from(asciistr.to_ascii_string())
     }
 }
@@ -205,11 +220,7 @@ impl TryFrom<AsciiString> for HeaderField {
     type Error = HeaderError;
 
     fn try_from(ascii_string: AsciiString) -> Result<Self, Self::Error> {
-        for b in ascii_string.as_bytes() {
-            if *b < 33 || *b >= 127 {
-                return Err(HeaderError::Range);
-            }
-        }
+        field_byte_range_check(ascii_string.as_bytes())?;
 
         Ok(HeaderField(ascii_string))
     }
@@ -251,11 +262,8 @@ impl HeaderFieldValue {
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
     {
-        for b in bytes.as_ref() {
-            if *b < 32 || *b >= 127 {
-                return Err(HeaderError::Range);
-            }
-        }
+        let bytes = bytes.into();
+        field_value_byte_range_check(&bytes)?;
 
         Ok(HeaderFieldValue(
             AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
@@ -289,10 +297,26 @@ impl HeaderFieldValue {
     }
 }
 
+/// Checks `bytes` for valid byte range for field values as
+/// defined in [RFC9110](https://datatracker.ietf.org/doc/html/rfc9110#name-field-values)
+#[inline]
+fn field_value_byte_range_check(bytes: &[u8]) -> Result<(), HeaderError> {
+    for &b in bytes {
+        // Ordered to most used in header fields
+        #[allow(clippy::manual_range_contains)]
+        if (b >= 32 && b <= 126) || b == 9 || b >= 128 {
+            continue;
+        }
+        return Err(HeaderError::Range);
+    }
+    Ok(())
+}
+
 impl FromStr for HeaderFieldValue {
     type Err = HeaderError;
 
     fn from_str(s: &str) -> Result<HeaderFieldValue, HeaderError> {
+        // be sure to check byte range if this is changed
         Self::try_from(s.as_bytes())
     }
 }
@@ -301,11 +325,7 @@ impl TryFrom<&[u8]> for HeaderFieldValue {
     type Error = HeaderError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        for b in bytes {
-            if *b < 32 || *b >= 127 {
-                return Err(HeaderError::Range);
-            }
-        }
+        field_value_byte_range_check(bytes)?;
 
         Ok(HeaderFieldValue(
             AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
@@ -317,6 +337,7 @@ impl TryFrom<&AsciiStr> for HeaderFieldValue {
     type Error = HeaderError;
 
     fn try_from(asciistr: &AsciiStr) -> Result<Self, Self::Error> {
+        // be sure to check byte range if this is changed
         Self::try_from(asciistr.to_ascii_string())
     }
 }
@@ -325,11 +346,7 @@ impl TryFrom<AsciiString> for HeaderFieldValue {
     type Error = HeaderError;
 
     fn try_from(ascii_string: AsciiString) -> Result<Self, Self::Error> {
-        for b in ascii_string.as_bytes() {
-            if *b < 32 || *b >= 127 {
-                return Err(HeaderError::Range);
-            }
-        }
+        field_value_byte_range_check(ascii_string.as_bytes())?;
 
         Ok(HeaderFieldValue(ascii_string))
     }
@@ -393,13 +410,155 @@ mod test {
         time::{Duration, SystemTime},
     };
 
-    use ascii::AsAsciiStr;
+    use ascii::{AsAsciiStr, AsciiStr, AsciiString};
     use httpdate::HttpDate;
 
-    use super::{Header, HEADER_FORBIDDEN};
+    use super::{
+        field_byte_range_check, field_value_byte_range_check, Header, HeaderField,
+        HeaderFieldValue, HEADER_FORBIDDEN,
+    };
 
     #[test]
-    fn test_parse_header() {
+    fn field_converter_byte_range_check_test() {
+        assert!(HeaderField::from_bytes(b"user@host").is_err());
+        assert!("user@host".parse::<HeaderField>().is_err());
+        assert!(HeaderField::try_from(&b"user@host"[..]).is_err());
+        assert!(HeaderField::try_from(AsciiStr::from_ascii("user@host").unwrap()).is_err());
+        assert!(HeaderField::try_from(AsciiString::from_ascii("user@host").unwrap()).is_err());
+    }
+
+    #[test]
+    fn field_value_converter_byte_range_check_test() {
+        assert!(HeaderFieldValue::from_bytes(b"\n").is_err());
+        assert!("\n".parse::<HeaderFieldValue>().is_err());
+        assert!(HeaderFieldValue::try_from(&b"\n"[..]).is_err());
+        assert!(HeaderFieldValue::try_from(AsciiStr::from_ascii("\n").unwrap()).is_err());
+        assert!(HeaderFieldValue::try_from(AsciiString::from_ascii("\n").unwrap()).is_err());
+    }
+
+    #[test]
+    fn field_byte_range_check_test() {
+        let field_ok_array = &[
+            "Host",
+            "HOST",
+            "host",
+            "User-Agent",
+            "Upgrade-Insecure-Requests",
+            "X_CUSTOM_HEADER",
+            "$X_CUSTOM_HEADER",
+        ];
+
+        for s in field_ok_array {
+            assert!(field_byte_range_check(s.as_bytes()).is_ok(), "field: {}", s);
+        }
+
+        let field_err_array = &[
+            "\"Host\"",
+            "HOST:",
+            "user@host",
+            "User-(Mozilla-Agent",
+            "User-Mozilla)-Agent",
+            "Upgrade-Insecure-Requests;",
+            "Upgrade-Insecure-Requests,",
+            "{$X_CUSTOM_HEADER",
+            "$X_CUSTOM_HEADER}",
+            "Host\rHost: localhost",
+            "Host\0",
+            "Host\n",
+            "Host\\",
+            "Host<user",
+            "Host>user",
+            "Host=user",
+            "Host/user",
+            "User-[Mozilla-Agent",
+            "User-Mozilla]-Agent",
+            "Host?",
+            " Host",
+            "\tHost",
+            "	Host",
+        ];
+
+        for s in field_err_array {
+            assert!(
+                field_byte_range_check(s.as_bytes()).is_err(),
+                "field: {}",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn field_value_byte_range_check_test() {
+        let value_ok_array = &[
+            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0)	Gecko/20100101 Firefox/115.0",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        ];
+
+        for s in value_ok_array {
+            assert!(
+                field_value_byte_range_check(s.as_bytes()).is_ok(),
+                "value: {}",
+                s
+            );
+        }
+
+        let value_err_array = &[
+            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0\r",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0\n",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0\0",
+        ];
+
+        for s in value_err_array {
+            assert!(
+                field_value_byte_range_check(s.as_bytes()).is_err(),
+                "value: {}",
+                s
+            );
+        }
+
+        for b in [8_u8, 31, 127] {
+            assert!(
+                field_value_byte_range_check(&[b]).is_err(),
+                "value: {:X}",
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn formats_date_correctly_test() {
+        let http_date = HttpDate::from(SystemTime::UNIX_EPOCH + Duration::from_secs(420_895_020));
+
+        assert_eq!(http_date.to_string(), "Wed, 04 May 1983 11:17:00 GMT");
+    }
+
+    #[test]
+    fn header_forbidden_lc_test() {
+        for h in HEADER_FORBIDDEN {
+            assert_eq!(h, &h.to_lowercase());
+        }
+    }
+
+    #[test]
+    fn header_try_from_ascii_test() {
+        let header: Header =
+            Header::try_from("Content-Type: text/html".as_ascii_str().unwrap()).unwrap();
+
+        assert!(header.field.equiv("content-type"));
+        assert!(header.value.as_str() == "text/html");
+    }
+
+    #[test]
+    fn header_with_doublecolon_try_from_ascii_test() {
+        let header: Header = Header::try_from("Time: 20: 34".as_ascii_str().unwrap()).unwrap();
+
+        assert!(header.field.equiv("time"));
+        assert!(header.value.as_str() == "20: 34");
+    }
+
+    #[test]
+    fn parse_header_test() {
         let header: Header = "Content-Type: text/html".parse().unwrap();
 
         assert!(header.field.equiv("content-type"));
@@ -409,32 +568,8 @@ mod test {
     }
 
     #[test]
-    fn test_header_try_from_ascii() {
-        let header: Header =
-            Header::try_from("Content-Type: text/html".as_ascii_str().unwrap()).unwrap();
-
-        assert!(header.field.equiv("content-type"));
-        assert!(header.value.as_str() == "text/html");
-    }
-
-    #[test]
-    fn formats_date_correctly() {
-        let http_date = HttpDate::from(SystemTime::UNIX_EPOCH + Duration::from_secs(420_895_020));
-
-        assert_eq!(http_date.to_string(), "Wed, 04 May 1983 11:17:00 GMT");
-    }
-
-    #[test]
-    fn test_parse_header_with_doublecolon() {
+    fn parse_header_with_doublecolon_test() {
         let header: Header = "Time: 20: 34".parse().unwrap();
-
-        assert!(header.field.equiv("time"));
-        assert!(header.value.as_str() == "20: 34");
-    }
-
-    #[test]
-    fn test_header_with_doublecolon_try_from_ascii() {
-        let header: Header = Header::try_from("Time: 20: 34".as_ascii_str().unwrap()).unwrap();
 
         assert!(header.field.equiv("time"));
         assert!(header.value.as_str() == "20: 34");
@@ -444,7 +579,7 @@ mod test {
     // through malformed Transfer Encoding headers"
     // (https://rustsec.org/advisories/RUSTSEC-2020-0031.html).
     #[test]
-    fn test_strict_headers() {
+    fn strict_headers_test() {
         assert!("Transfer-Encoding : chunked".parse::<Header>().is_err());
         assert!(" Transfer-Encoding: chunked".parse::<Header>().is_err());
         assert!("Transfer Encoding: chunked".parse::<Header>().is_err());
@@ -455,7 +590,7 @@ mod test {
     }
 
     #[test]
-    fn test_strict_headers_try_from_ascii() {
+    fn strict_headers_try_from_ascii_test() {
         for s in [
             "Transfer-Encoding : chunked",
             " Transfer-Encoding: chunked",
@@ -483,13 +618,6 @@ mod test {
                 s,
                 header.unwrap_err()
             );
-        }
-    }
-
-    #[test]
-    fn test_header_forbidden_lc() {
-        for h in HEADER_FORBIDDEN {
-            assert_eq!(h, &h.to_lowercase());
         }
     }
 }
