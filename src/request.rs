@@ -469,7 +469,7 @@ impl Request {
     ///
     /// This may only be called once on a single request.
     fn extract_writer_impl(&mut self) -> Box<dyn Write + Send + 'static> {
-        assert!(self.response_writer.is_some());
+        debug_assert!(self.response_writer.is_some());
         self.response_writer.take().expect("extract writer failed")
     }
 
@@ -477,7 +477,7 @@ impl Request {
     ///
     /// This may only be called once on a single request.
     fn extract_reader_impl(&mut self) -> Box<dyn DataRead + Send + 'static> {
-        assert!(self.data_reader.is_some());
+        debug_assert!(self.data_reader.is_some());
         self.data_reader.take().expect("extract reader failed")
     }
 

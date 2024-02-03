@@ -384,7 +384,7 @@ where
                 }
 
                 Some(TransferEncoding::Identity) => {
-                    assert!(self.data_length.is_some());
+                    debug_assert!(self.data_length.is_some());
                     let data_length = self.data_length.unwrap();
 
                     if data_length >= 1 {
@@ -724,7 +724,7 @@ where
                 }
 
                 Some(TransferEncoding::Identity) => {
-                    assert!(self.data_length.is_some());
+                    debug_assert!(self.data_length.is_some());
                     let data_length = self.data_length.unwrap();
 
                     if data_length >= 1 {
