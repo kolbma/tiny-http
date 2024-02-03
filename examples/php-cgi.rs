@@ -33,10 +33,7 @@ fn handle(rq: tiny_http::Request, script: &str) -> Result<(), IoError> {
             //.stdin(Ignored)
             //.extra_io(Ignored)
             .env("AUTH_TYPE", "")
-            .env(
-                "CONTENT_LENGTH",
-                rq.content_length().unwrap_or_default().to_string(),
-            )
+            .env("CONTENT_LENGTH", format!("{}", 198 + script.len()))
             .env("CONTENT_TYPE", "")
             .env("GATEWAY_INTERFACE", "CGI/1.1")
             .env("PATH_INFO", "")
