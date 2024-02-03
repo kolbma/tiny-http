@@ -132,7 +132,7 @@ impl ClientConnection {
     ///
     /// The overall header limit is 8K.
     /// The limit per header line is 2K.
-    fn read_next_line(&mut self, buf: &mut Vec<u8>) -> Result<bool, ReadError> {
+    fn read_next_line(&mut self, buf: &mut Vec<u8>) -> Result<(), ReadError> {
         let mut bytes = [0u8; limits::HEADER_READER_BUF_SIZE];
         let mut limit = 0;
         let mut space_only = true;
@@ -162,18 +162,21 @@ impl ClientConnection {
                     check_line_limit!(self, limit, self.limits.header_line_len);
                     buf.extend_from_slice(&bytes[0..n]);
                 } else {
+                    if w == 0 {
+                        // got <NL> in a fresh bytes buffer
+                        space_only = false;
+                    }
                     limit += w;
                     check_line_limit!(self, limit, self.limits.header_line_len);
                     buf.extend_from_slice(&bytes[0..w]);
                     log::debug!("missing 2-byte compliant <CR><NL>");
                 }
+
                 break;
-            } else if b != CR && (b < 32 || b > 127) {
-                return Err(ReadError::ReadIoError(IoError::new(
-                    IoErrorKind::InvalidInput,
-                    "header no ascii",
-                )));
-            } else if space_only && b != 32 {
+            } else if (b != CR && b < 32 && b != 9) || b == 127 {
+                // abort early when byte range of client violates spec
+                return Err(ReadError::RfcViolation);
+            } else if space_only && b != 32 && b != 9 {
                 space_only = false;
             }
 
@@ -187,7 +190,12 @@ impl ClientConnection {
             }
         }
 
-        Ok(!space_only)
+        if space_only {
+            // spec doesn't allow lines with only spaces
+            return Err(ReadError::RfcViolation);
+        }
+
+        Ok(())
     }
 
     /// Reads a request from the stream.
@@ -202,7 +210,7 @@ impl ClientConnection {
 
             // reading the request line
             let (method, path, version) = {
-                let is_line_ok = self.read_next_line(&mut line_buf).map_err(|err| {
+                self.read_next_line(&mut line_buf).map_err(|err| {
                     match err {
                         ReadError::HttpProtocol(v, RequestHeaderFieldsTooLarge431) => {
                             // match to 414 URI Too Long for request line
@@ -211,10 +219,6 @@ impl ClientConnection {
                         _ => err,
                     }
                 })?;
-
-                if !is_line_ok {
-                    return Err(ReadError::WrongRequestLine);
-                }
 
                 let line_len = line_buf.len();
 
@@ -240,16 +244,12 @@ impl ClientConnection {
             let headers = {
                 let mut headers = Vec::new();
                 loop {
-                    let is_line_ok = self.read_next_line(&mut line_buf)?;
-
-                    if !is_line_ok {
-                        return Err(ReadError::WrongHeader(version));
-                    }
+                    self.read_next_line(&mut line_buf)?;
 
                     let line_len = line_buf.len();
 
                     if line_len == 0 {
-                        break;
+                        break; // header end
                     }
 
                     header_limit_rest = header_limit_rest.checked_sub(line_len).ok_or(
@@ -259,7 +259,7 @@ impl ClientConnection {
 
                     headers.push(match Header::try_from(line_buf.as_slice()) {
                         Ok(h) => h,
-                        _ => return Err(ReadError::WrongHeader(version)),
+                        _ => return Err(ReadError::Header(version)),
                     });
                 }
 
@@ -303,33 +303,6 @@ impl ClientConnection {
 
     fn request_error_handler(&mut self, err: ReadError) -> ReadError {
         match err {
-            ReadError::WrongRequestLine => {
-                send_error_std_response(self, BadRequest400, None, false);
-                // we don't know where the next request would start,
-                // so we have to close
-            }
-
-            ReadError::WrongHeader(ver) => {
-                send_error_std_response(self, BadRequest400, Some(ver), false);
-                // we don't know where the next request would start,
-                // so we have to close
-            }
-
-            ReadError::HttpProtocol(ver, status) => {
-                send_error_std_response(self, status, Some(ver), false);
-                // we don't know where the next request would start,
-                // so we have to close
-            }
-
-            ReadError::WrongVersion(_ver) => {
-                send_error_std_response(self, HttpVersionNotSupported505, None, false);
-            }
-
-            ReadError::ExpectationFailed(ver) => {
-                // TODO: should be recoverable, but needs handling in case of body
-                send_error_std_response(self, ExpectationFailed417, Some(ver), true);
-            }
-
             ReadError::ReadIoError(ref inner_err) if inner_err.kind() == IoErrorKind::TimedOut => {
                 // windows socket uses `TimedOut` on socket timeout
                 send_error_std_response(self, RequestTimeout408, None, false);
@@ -349,6 +322,33 @@ impl ClientConnection {
                 let _ = inner_err;
                 log::debug!("would block: {inner_err}");
                 return ReadError::WouldBlock;
+            }
+
+            ReadError::RequestLine | ReadError::RfcViolation => {
+                send_error_std_response(self, BadRequest400, None, false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::Header(ver) => {
+                send_error_std_response(self, BadRequest400, Some(ver), false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::HttpProtocol(ver, status) => {
+                send_error_std_response(self, status, Some(ver), false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::HttpVersion(_ver) => {
+                send_error_std_response(self, HttpVersionNotSupported505, None, false);
+            }
+
+            ReadError::ExpectationFailed(ver) => {
+                // TODO: should be recoverable, but needs handling in case of body
+                send_error_std_response(self, ExpectationFailed417, Some(ver), true);
             }
 
             ReadError::ReadIoError(ref inner_err) => {
@@ -485,12 +485,13 @@ fn set_connection_close(c: &mut ClientConnection, rq: &mut Request, set_close_he
 pub(crate) enum ReadError {
     /// the client sent an unrecognized `Expect` header
     ExpectationFailed(HttpVersion),
+    Header(HttpVersion),
     HttpProtocol(HttpVersion, response::Standard),
+    HttpVersion(Option<HttpVersion>),
     ReadIoError(IoError),
+    RequestLine,
+    RfcViolation,
     WouldBlock,
-    WrongHeader(HttpVersion),
-    WrongRequestLine,
-    WrongVersion(Option<HttpVersion>),
 }
 
 impl std::error::Error for ReadError {}
@@ -499,8 +500,9 @@ impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ExpectationFailed(v) => {
-                write!(f, "{} unrecognized Expect", v.header())
+                write!(f, "unrecognized expect: {}", v.header())
             }
+            Self::Header(v) => write!(f, "unsupported header: {}", v.header()),
             Self::HttpProtocol(v, status) => {
                 let response = <&response::StandardResponse>::from(status);
                 write!(
@@ -511,15 +513,15 @@ impl std::fmt::Display for ReadError {
                     response.as_utf8_str().unwrap() // StandardResponse has data set
                 )
             }
-            Self::ReadIoError(err) => err.fmt(f),
-            Self::WouldBlock => f.write_str("would block"),
-            Self::WrongHeader(v) => write!(f, "{} unsupported header", v.header()),
-            Self::WrongRequestLine => f.write_str("no request"),
-            Self::WrongVersion(v) => write!(
+            Self::HttpVersion(v) => write!(
                 f,
-                "{} unsupported version",
+                "unsupported version: {}",
                 v.map(|v| v.header()).unwrap_or_default()
             ),
+            Self::ReadIoError(err) => err.fmt(f),
+            Self::RequestLine => f.write_str("no request"),
+            Self::RfcViolation => f.write_str("http rfc violation"),
+            Self::WouldBlock => f.write_str("would block"),
         }
     }
 }
@@ -558,8 +560,8 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, AsciiString, HttpVersion),
     let method = parts
         .next()
         .map(Method::from)
-        .ok_or(ReadError::WrongRequestLine)?;
-    let path = parts.next().ok_or(ReadError::WrongRequestLine)?;
+        .ok_or(ReadError::RequestLine)?;
+    let path = parts.next().ok_or(ReadError::RequestLine)?;
     let version = parts
         .next()
         .map(|w| {
@@ -568,16 +570,16 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, AsciiString, HttpVersion),
                     // only up to 1.1 supported
                     Ok(ver)
                 } else {
-                    Err(ReadError::WrongVersion(Some(ver)))
+                    Err(ReadError::HttpVersion(Some(ver)))
                 };
             }
-            Err(ReadError::WrongVersion(None))
+            Err(ReadError::HttpVersion(None))
         })
-        .ok_or(ReadError::WrongRequestLine)??;
+        .ok_or(ReadError::RequestLine)??;
 
     if parts.next().is_some() {
         // more spaces than allowed
-        return Err(ReadError::WrongRequestLine);
+        return Err(ReadError::RequestLine);
     }
 
     Ok((
