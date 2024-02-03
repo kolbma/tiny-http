@@ -41,7 +41,7 @@ pub enum Standard {
     NotFound404,
     MethodNotAllowed405,
     RequestTimeout408,
-    PayloadTooLarge413,
+    ContentTooLarge413,
     UriTooLong414,
     ExpectationFailed417,
     RequestHeaderFieldsTooLarge431,
@@ -75,7 +75,7 @@ impl Standard {
             Standard::InternalServerError500 => &CACHE_500,
             Standard::MethodNotAllowed405 => &CACHE_405,
             Standard::RequestTimeout408 => &CACHE_408,
-            Standard::PayloadTooLarge413 => &CACHE_413,
+            Standard::ContentTooLarge413 => &CACHE_413,
             Standard::UriTooLong414 => &CACHE_414,
             Standard::ExpectationFailed417 => &CACHE_417,
             Standard::RequestHeaderFieldsTooLarge431 => &CACHE_431,
@@ -108,7 +108,7 @@ impl From<Standard> for StatusCode {
             Standard::NotFound404 => 404,
             Standard::MethodNotAllowed405 => 405,
             Standard::RequestTimeout408 => 408,
-            Standard::PayloadTooLarge413 => 413,
+            Standard::ContentTooLarge413 => 413,
             Standard::UriTooLong414 => 414,
             Standard::ExpectationFailed417 => 417,
             Standard::RequestHeaderFieldsTooLarge431 => 431,
@@ -134,7 +134,7 @@ impl TryFrom<StatusCode> for Standard {
             500 => Self::InternalServerError500,
             405 => Self::MethodNotAllowed405,
             408 => Self::RequestTimeout408,
-            413 => Self::PayloadTooLarge413,
+            413 => Self::ContentTooLarge413,
             414 => Self::UriTooLong414,
             417 => Self::ExpectationFailed417,
             431 => Self::RequestHeaderFieldsTooLarge431,
@@ -175,7 +175,7 @@ mod tests {
             Standard::NotFound404,
             Standard::MethodNotAllowed405,
             Standard::RequestTimeout408,
-            Standard::PayloadTooLarge413,
+            Standard::ContentTooLarge413,
             Standard::UriTooLong414,
             Standard::ExpectationFailed417,
             Standard::RequestHeaderFieldsTooLarge431,
@@ -198,7 +198,7 @@ mod tests {
                 | Standard::NotFound404
                 | Standard::MethodNotAllowed405
                 | Standard::RequestTimeout408
-                | Standard::PayloadTooLarge413
+                | Standard::ContentTooLarge413
                 | Standard::UriTooLong414
                 | Standard::ExpectationFailed417
                 | Standard::RequestHeaderFieldsTooLarge431
@@ -239,7 +239,7 @@ mod tests {
             Standard::NotFound404,
             Standard::NotImplemented501,
             Standard::Ok200,
-            Standard::PayloadTooLarge413,
+            Standard::ContentTooLarge413,
             Standard::RequestHeaderFieldsTooLarge431,
             Standard::RequestTimeout408,
             Standard::UriTooLong414,
@@ -291,7 +291,7 @@ mod tests {
                     Standard::NotFound404 => 404,
                     Standard::MethodNotAllowed405 => 405,
                     Standard::RequestTimeout408 => 408,
-                    Standard::PayloadTooLarge413 => 413,
+                    Standard::ContentTooLarge413 => 413,
                     Standard::UriTooLong414 => 414,
                     Standard::ExpectationFailed417 => 417,
                     Standard::RequestHeaderFieldsTooLarge431 => 431,
