@@ -80,7 +80,7 @@ fn main() {
                     let response = response
                         .with_header(Header {
                             field: "Content-Type".parse().unwrap(),
-                            value: HeaderFieldValue::from_bytes(get_content_type(&path)).unwrap(),
+                            value: HeaderFieldValue::from_bytes(&get_content_type(&path)).unwrap(),
                         })
                         .unwrap();
 

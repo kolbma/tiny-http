@@ -291,11 +291,7 @@ fn main() {
             if let Some(sec_websocket_accept) = sec_websocket_accept {
                 response
                     .add_header(
-                        Header::from_bytes(
-                            b"Sec-WebSocket-Accept",
-                            sec_websocket_accept.as_bytes(),
-                        )
-                        .unwrap(),
+                        Header::from_bytes(b"Sec-WebSocket-Accept", &sec_websocket_accept).unwrap(),
                     )
                     .unwrap();
             }

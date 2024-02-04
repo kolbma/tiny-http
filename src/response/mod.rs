@@ -321,7 +321,7 @@ where
         // handling upgrade
         if let Some(upgrade) = upgrade {
             headers.push(ConnectionValue::Upgrade.into());
-            headers.push(Header::from_bytes(b"Upgrade", upgrade.as_bytes()).unwrap());
+            headers.push(Header::from_bytes(b"Upgrade", &upgrade).unwrap());
             transfer_encoding = None;
         }
 
@@ -668,7 +668,7 @@ where
         // handling upgrade
         if let Some(upgrade) = upgrade {
             headers.push(ConnectionValue::Upgrade.into());
-            headers.push(Header::from_bytes(b"Upgrade", upgrade.as_bytes()).unwrap());
+            headers.push(Header::from_bytes(b"Upgrade", &upgrade).unwrap());
             transfer_encoding = None;
         }
 

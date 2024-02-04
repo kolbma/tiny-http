@@ -59,7 +59,7 @@ impl From<TestRequest> for Request {
             .any(|h| h.field.equiv("Content-Length"))
         {
             mock.headers.push(Header {
-                field: HeaderField::from_bytes(&b"Content-Length"[..]).unwrap(),
+                field: HeaderField::from_bytes(b"Content-Length").unwrap(),
                 value: HeaderFieldValue::try_from(mock.body.len().to_string().as_bytes()).unwrap(),
             });
         }

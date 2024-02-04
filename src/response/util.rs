@@ -362,7 +362,7 @@ mod tests {
                 DateHeader::current(),
                 Header::from_bytes(b"Server", b"tiny-http").unwrap(),
             ]),
-            &Some(HashSet::from([HeaderField::from_bytes(&b"Date"[..])?])),
+            &Some(HashSet::from([HeaderField::from_bytes(b"Date")?])),
         );
         assert!(result.is_ok());
 

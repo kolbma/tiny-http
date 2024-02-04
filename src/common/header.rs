@@ -23,7 +23,11 @@ impl Header {
     /// ```
     /// let header = tiny_http::Header::from_bytes(b"Content-Type", b"text/plain").unwrap();
     /// ```
-    pub fn from_bytes(field: &[u8], value: &[u8]) -> Result<Header, HeaderError> {
+    pub fn from_bytes<F, V>(field: &F, value: &V) -> Result<Header, HeaderError>
+    where
+        F: Into<Vec<u8>> + AsRef<[u8]>,
+        V: Into<Vec<u8>> + AsRef<[u8]>,
+    {
         let field = HeaderField::from_bytes(field)?;
         let value = HeaderFieldValue::from_bytes(value)?;
 
@@ -138,12 +142,12 @@ impl HeaderField {
     ///
     /// - [`HeaderError`] for `bytes` conversion
     ///
-    pub fn from_bytes<B>(bytes: B) -> Result<HeaderField, HeaderError>
+    pub fn from_bytes<B>(bytes: &B) -> Result<HeaderField, HeaderError>
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
     {
-        let bytes = bytes.into();
-        field_byte_range_check(&bytes)?;
+        let bytes = bytes.as_ref();
+        field_byte_range_check(bytes)?;
 
         Ok(HeaderField(
             AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
@@ -282,12 +286,12 @@ impl HeaderFieldValue {
     ///
     /// - [`HeaderError`] for `bytes` conversion
     ///
-    pub fn from_bytes<B>(bytes: B) -> Result<HeaderFieldValue, HeaderError>
+    pub fn from_bytes<B>(bytes: &B) -> Result<HeaderFieldValue, HeaderError>
     where
         B: Into<Vec<u8>> + AsRef<[u8]>,
     {
-        let bytes = bytes.into();
-        field_value_byte_range_check(&bytes)?;
+        let bytes = bytes.as_ref();
+        field_value_byte_range_check(bytes)?;
 
         Ok(HeaderFieldValue(
             AsciiString::from_ascii(bytes).map_err(|err| HeaderError::Ascii(err.ascii_error()))?,
@@ -444,7 +448,7 @@ mod test {
 
     #[test]
     fn field_converter_byte_range_check_test() {
-        assert!(HeaderField::from_bytes(&b"user@host"[..]).is_err());
+        assert!(HeaderField::from_bytes(b"user@host").is_err());
         assert!("user@host".parse::<HeaderField>().is_err());
         assert!(HeaderField::try_from(&b"user@host"[..]).is_err());
         assert!(HeaderField::try_from(AsciiStr::from_ascii("user@host").unwrap()).is_err());
@@ -453,7 +457,7 @@ mod test {
 
     #[test]
     fn field_value_converter_byte_range_check_test() {
-        assert!(HeaderFieldValue::from_bytes(&b"\n"[..]).is_err());
+        assert!(HeaderFieldValue::from_bytes(b"\n").is_err());
         assert!("\n".parse::<HeaderFieldValue>().is_err());
         assert!(HeaderFieldValue::try_from(&b"\n"[..]).is_err());
         assert!(HeaderFieldValue::try_from(AsciiStr::from_ascii("\n").unwrap()).is_err());
