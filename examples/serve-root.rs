@@ -51,7 +51,9 @@ fn main() {
                         let path_str = path.to_str();
                         if path_str.is_some() && path.starts_with(base_path) {
                             println!("requesting file: {}", path_str.unwrap());
-                            path_ok = true;
+                            if path.is_file() {
+                                path_ok = true;
+                            }
                         }
                     }
 
