@@ -455,7 +455,7 @@ impl Response<File> {
         let data_length = file
             .metadata()
             .ok()
-            .map(|v| usize::try_from(v.len()).unwrap_or(usize::MAX));
+            .map(|meta| usize::try_from(meta.len()).unwrap_or(usize::MAX));
 
         Response {
             data: Some(file),
