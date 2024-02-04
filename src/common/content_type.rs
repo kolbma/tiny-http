@@ -5,8 +5,6 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::OnceLock;
 
-use crate::common;
-
 macro_rules! create_content_types {
     ($(($ct:ident, $text:expr)),+) => {
         #[doc = "HTTP protocol Content-Type header values"]
@@ -153,7 +151,7 @@ impl From<ContentType> for AsciiString {
 impl From<ContentType> for super::Header {
     fn from(value: ContentType) -> Self {
         super::Header {
-            field: common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
+            field: super::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
             value: value.into(),
         }
     }
@@ -161,7 +159,7 @@ impl From<ContentType> for super::Header {
 
 impl From<ContentType> for super::HeaderField {
     fn from(_: ContentType) -> Self {
-        common::static_header::CONTENT_TYPE_HEADER_FIELD.clone()
+        super::static_header::CONTENT_TYPE_HEADER_FIELD.clone()
     }
 }
 
@@ -175,7 +173,7 @@ impl TryFrom<&super::Header> for ContentType {
     type Error = ();
 
     fn try_from(header: &super::Header) -> Result<Self, Self::Error> {
-        if header.field == *common::static_header::CONTENT_TYPE_HEADER_FIELD {
+        if header.field == *super::static_header::CONTENT_TYPE_HEADER_FIELD {
             return ContentType::try_from(header.value.as_bytes()).map_err(|_err| ());
         }
 

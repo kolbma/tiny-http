@@ -4,7 +4,8 @@ use std::{convert::TryFrom, io::Cursor};
 
 use lazy_static::lazy_static;
 
-use crate::{ConnectionValue, Header, Response, StatusCode};
+use crate::common::{ConnectionValue, Header, StatusCode};
+use crate::Response;
 
 /// `StandardResponse` is type for `static` standard [`Response`]
 pub type StandardResponse = Response<Cursor<&'static [u8]>>;
