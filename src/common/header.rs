@@ -51,6 +51,7 @@ impl std::fmt::Display for Header {
     }
 }
 
+/// Tries to create `Header` by a header line
 impl TryFrom<&[u8]> for Header {
     type Error = HeaderError;
 
@@ -69,21 +70,30 @@ impl TryFrom<&[u8]> for Header {
             return Err(HeaderError::Format);
         }
 
-        let field = HeaderField::try_from(&input[0..(after_colon_pos - 1)])?;
+        Self::try_from((&input[0..(after_colon_pos - 1)], &input[after_colon_pos..]))
+    }
+}
 
-        let mut first_non_space = after_colon_pos;
-        for b in &input[after_colon_pos..] {
+/// Tries to create `Header` by tuple of _field_, _value_
+impl TryFrom<(&[u8], &[u8])> for Header {
+    type Error = HeaderError;
+
+    fn try_from((input_field, input_value): (&[u8], &[u8])) -> Result<Self, Self::Error> {
+        let field = HeaderField::try_from(input_field)?;
+
+        let mut first_non_space = 0;
+        for b in input_value {
             if *b != b' ' {
                 break;
             }
             first_non_space += 1;
         }
 
-        let mut last_non_space = input_len - 1;
+        let mut last_non_space = input_value.len() - 1;
 
         #[allow(clippy::mut_range_bound, clippy::needless_range_loop)]
         for n in last_non_space..first_non_space {
-            if input[n] != b' ' {
+            if input_value[n] != b' ' {
                 break;
             }
 
@@ -93,13 +103,13 @@ impl TryFrom<&[u8]> for Header {
         debug_assert!(
             first_non_space <= last_non_space,
             "input: {:?} {} [{} <= {} ?]",
-            &input,
-            std::str::from_utf8(input).unwrap(),
+            &input_value,
+            std::str::from_utf8(input_value).unwrap(),
             first_non_space,
             last_non_space
         );
 
-        let value = HeaderFieldValue::try_from(&input[first_non_space..=last_non_space])?;
+        let value = HeaderFieldValue::try_from(&input_value[first_non_space..=last_non_space])?;
 
         Ok(Header { field, value })
     }
