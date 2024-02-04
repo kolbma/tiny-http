@@ -1,10 +1,11 @@
-use crate::util::refined_tcp_stream::Stream as RefinedStream;
-use crate::ConnectionStream;
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex};
 use zeroize::Zeroizing;
+
+use crate::util::refined_tcp_stream::Stream as RefinedStream;
+use crate::ConnectionStream;
 
 pub(crate) struct OpenSslStream {
     inner: openssl::ssl::SslStream<ConnectionStream>,
