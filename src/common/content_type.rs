@@ -3,131 +3,150 @@
 use ascii::{AsciiStr, AsciiString};
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fmt::{self, Formatter};
-use std::str::FromStr;
 use std::sync::OnceLock;
 
 use crate::common;
 
-/// HTTP protocol Content-Type header values
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
-#[allow(missing_docs)]
-pub enum ContentType {
-    ApplicationGzip,
-    ApplicationJavascript,
-    ApplicationJson,
-    ApplicationOctetStream,
-    ApplicationPdf,
-    ApplicationRtf,
-    ApplicationX7ZCompressed,
-    ApplicationXBzip2,
-    ApplicationXhtmlXml,
-    ApplicationXml,
-    ApplicationZip,
-    FontOtf,
-    FontTtf,
-    FontWoff,
-    FontWoff2,
-    ImageGif,
-    ImageIcon,
-    ImageJpeg,
-    ImagePng,
-    ImageSvgXml,
-    ImageWebp,
-    TextCsv,
-    TextHtml,
-    TextJavascript,
-    TextPlain,
-    TextPlainUtf8,
-    TextXml,
+macro_rules! create_content_types {
+    ($(($ct:ident, $text:expr)),+) => {
+        #[doc = "HTTP protocol Content-Type header values"]
+        #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+        #[allow(missing_docs)]
+        pub enum ContentType {
+            $($ct),+
+        }
+
+        const CONTENT_TYPES: &[&[u8]] = &[$($text),+];
+
+        impl TryFrom<usize> for ContentType {
+            type Error = ();
+
+            fn try_from(idx: usize) -> Result<Self, Self::Error> {
+                Ok(match idx {
+                   $(_ if (Self::$ct as usize) == idx => Self::$ct,)+
+                    _ => return Err(()),
+                })
+            }
+        }
+    };
 }
 
-static CONTENT_TYPES: OnceLock<HashMap<ContentType, &[u8]>> = OnceLock::new();
+// specify mime type always in lowercase or it will not work
+create_content_types!(
+    (ApplicationGzip, b"application/gzip"),
+    (ApplicationJavascript, b"application/javascript"),
+    (ApplicationJson, b"application/json"),
+    (ApplicationOctetStream, b"application/octet-stream"),
+    (ApplicationPdf, b"application/pdf"),
+    (ApplicationRtf, b"application/rtf"),
+    (ApplicationX7ZCompressed, b"application/x-7z-compressed"),
+    (ApplicationXBzip2, b"application/bzip2"),
+    (ApplicationXhtmlXml, b"application/xhtml+xml"),
+    (ApplicationXml, b"application/xml"),
+    (ApplicationZip, b"application/x-zip"),
+    (FontOtf, b"font/otf"),
+    (FontTtf, b"font/ttf"),
+    (FontWoff, b"font/woff"),
+    (FontWoff2, b"font/woff2"),
+    (ImageGif, b"image/gif"),
+    (ImageIcon, b"image/vnd.microsoft.icon"),
+    (ImageJpeg, b"image/jpeg"),
+    (ImagePng, b"image/png"),
+    (ImageSvgXml, b"image/svg+xml"),
+    (ImageWebp, b"image/webp"),
+    (TextCsv, b"text/csv"),
+    (TextHtml, b"text/html"),
+    (TextHtmlUtf8, b"text/html; charset=utf8"),
+    (TextJavascript, b"text/javascript"),
+    (TextJavascriptUtf8, b"text/javascript; charset=utf8"),
+    (TextPlain, b"text/plain"),
+    (TextPlainUtf8, b"text/plain; charset=utf8"),
+    (TextXml, b"text/xml")
+);
 
-static CONTENT_TYPE_LOOKUP: OnceLock<HashMap<&[u8], ContentType>> = OnceLock::new();
+static CONTENT_TYPE_LOOKUP: OnceLock<HashMap<&&[u8], usize>> = OnceLock::new();
 
-// all in lowercase!
-// same order as enum
-fn content_types() -> &'static HashMap<ContentType, &'static [u8]> {
-    CONTENT_TYPES.get_or_init(|| {
-        HashMap::from([
-            (ContentType::ApplicationGzip, &b"application/gzip"[..]),
-            (
-                ContentType::ApplicationJavascript,
-                b"application/javascript",
-            ),
-            (ContentType::ApplicationJson, b"application/json"),
-            (
-                ContentType::ApplicationOctetStream,
-                b"application/octet-stream",
-            ),
-            (ContentType::ApplicationPdf, b"application/pdf"),
-            (ContentType::ApplicationRtf, b"application/rtf"),
-            (ContentType::ApplicationXhtmlXml, b"application/xhtml+xml"),
-            (
-                ContentType::ApplicationX7ZCompressed,
-                b"application/x-7z-compressed",
-            ),
-            (ContentType::ApplicationXBzip2, b"application/bzip2"),
-            (ContentType::ApplicationXml, b"application/xml"),
-            (ContentType::ApplicationZip, b"application/zip"),
-            (ContentType::FontOtf, b"font/otf"),
-            (ContentType::FontTtf, b"font/ttf"),
-            (ContentType::FontWoff, b"font/woff"),
-            (ContentType::FontWoff2, b"font/woff2"),
-            (ContentType::ImageGif, b"image/gif"),
-            (ContentType::ImageIcon, b"image/vnd.microsoft.icon"),
-            (ContentType::ImageJpeg, b"image/jpeg"),
-            (ContentType::ImagePng, b"image/png"),
-            (ContentType::ImageSvgXml, b"image/svg+xml"),
-            (ContentType::ImageWebp, b"image/webp"),
-            (ContentType::TextCsv, b"text/csv"),
-            (ContentType::TextHtml, b"text/html"),
-            (ContentType::TextJavascript, b"text/javascript"),
-            (ContentType::TextPlain, b"text/plain"),
-            (ContentType::TextPlainUtf8, b"text/plain; charset=utf8"),
-            (ContentType::TextXml, b"text/xml"),
-        ])
-    })
-}
-
-fn content_type_lookup() -> &'static HashMap<&'static [u8], ContentType> {
-    CONTENT_TYPE_LOOKUP.get_or_init(|| {
+#[inline]
+fn content_type_lookup(value: &[u8]) -> Option<ContentType> {
+    let map = CONTENT_TYPE_LOOKUP.get_or_init(|| {
         let mut map = HashMap::new();
-        for (k, v) in content_types() {
-            let _ = map.insert(*v, *k);
+        for (n, t) in CONTENT_TYPES.iter().enumerate() {
+            let _ = map.insert(t, n);
         }
         map
-    })
+    });
+
+    let lc = value.to_ascii_lowercase();
+    let field = if let Some(field) = lc.strip_prefix(b"content-type:") {
+        if let Some(field) = field.strip_prefix(b" ") {
+            field
+        } else {
+            field
+        }
+    } else {
+        lc.as_slice()
+    };
+
+    let mut splits = field.splitn(2, |b| *b == b';');
+    let field = splits.next().unwrap();
+    let mut full_field = field.to_vec();
+    let charset = splits.next();
+
+    if let Some(charset) = charset {
+        let charset = if charset[0] == b' ' {
+            &charset[1..]
+        } else {
+            charset
+        };
+
+        if charset.starts_with(b"charset=") {
+            full_field.extend_from_slice(b"; ");
+            full_field.extend_from_slice(&charset[..8]);
+            if charset.ends_with(b"utf-8") {
+                full_field.extend_from_slice(b"utf8");
+            } else {
+                full_field.extend_from_slice(&charset[8..]);
+            }
+        }
+    }
+
+    let idx = map.get(&&full_field[..]);
+    let idx = if let Some(idx) = idx {
+        *idx
+    } else {
+        *map.get(&field)?
+    };
+
+    ContentType::try_from(idx).ok()
 }
 
 impl std::fmt::Display for ContentType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.into())
     }
 }
 
 impl From<ContentType> for &'static [u8] {
     fn from(value: ContentType) -> Self {
-        content_types().get(&value).unwrap()
+        CONTENT_TYPES[value as usize]
     }
 }
 
 impl From<ContentType> for &'static str {
     fn from(value: ContentType) -> Self {
-        std::str::from_utf8(<&[u8]>::from(value)).unwrap()
+        std::str::from_utf8(CONTENT_TYPES[value as usize]).unwrap()
     }
 }
 
 impl From<&ContentType> for &'static str {
     fn from(value: &ContentType) -> Self {
-        Self::from(*value)
+        std::str::from_utf8(CONTENT_TYPES[*value as usize]).unwrap()
     }
 }
 
 impl From<ContentType> for AsciiString {
     fn from(value: ContentType) -> Self {
-        AsciiString::from_str(value.into()).unwrap()
+        AsciiString::from_ascii(CONTENT_TYPES[value as usize]).unwrap()
     }
 }
 
@@ -148,7 +167,7 @@ impl From<ContentType> for super::HeaderField {
 
 impl From<ContentType> for super::HeaderFieldValue {
     fn from(value: ContentType) -> Self {
-        super::HeaderFieldValue::try_from(<&[u8]>::from(value)).unwrap()
+        super::HeaderFieldValue::try_from(CONTENT_TYPES[value as usize]).unwrap()
     }
 }
 
@@ -156,8 +175,8 @@ impl TryFrom<&super::Header> for ContentType {
     type Error = ();
 
     fn try_from(header: &super::Header) -> Result<Self, Self::Error> {
-        if header.field == ContentType::ApplicationGzip.into() {
-            return ContentType::try_from(header.value.as_str()).map_err(|_err| ());
+        if header.field == *common::static_header::CONTENT_TYPE_HEADER_FIELD {
+            return ContentType::try_from(header.value.as_bytes()).map_err(|_err| ());
         }
 
         Err(())
@@ -172,12 +191,11 @@ impl TryFrom<super::Header> for ContentType {
     }
 }
 
-// TODO: implement TryFrom<&[u8]> for ContentType and convert as_bytes from &str
 impl TryFrom<&[u8]> for ContentType {
     type Error = ();
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from(std::str::from_utf8(bytes).map_err(|_| ())?)
+        content_type_lookup(bytes).ok_or(())
     }
 }
 
@@ -185,41 +203,7 @@ impl TryFrom<&str> for ContentType {
     type Error = ();
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let lowercase = value.to_ascii_lowercase();
-        let lowercase = lowercase.as_str();
-
-        let field = if let Some(field) = lowercase.strip_prefix("content-type:") {
-            if let Some(field) = field.strip_prefix(' ') {
-                field
-            } else {
-                field
-            }
-        } else {
-            lowercase
-        };
-
-        if let Some((field, charset)) = field.split_once(';') {
-            if let Some((cfield, charset)) = charset.split_once('=') {
-                if cfield.trim().to_ascii_lowercase() == "charset" {
-                    let charset = charset.trim().to_ascii_lowercase().replace('-', "");
-                    if &charset == "utf8" {
-                        let field = format!("{field}; charset={charset}");
-                        if let Some(ct) = content_type_lookup().get(field.as_bytes()).copied() {
-                            return Ok(ct);
-                        }
-                    }
-                }
-            }
-            return content_type_lookup()
-                .get(field.as_bytes())
-                .copied()
-                .ok_or(());
-        }
-
-        content_type_lookup()
-            .get(field.as_bytes())
-            .copied()
-            .ok_or(())
+        content_type_lookup(value.as_bytes()).ok_or(())
     }
 }
 
@@ -237,42 +221,26 @@ mod tests {
 
     use crate::common::{ContentType, Header, HeaderField};
 
-    use super::{content_type_lookup, content_types};
+    use super::{content_type_lookup, CONTENT_TYPES};
 
     #[test]
     fn content_types_test() {
-        for (k, v) in content_types() {
+        assert!(!CONTENT_TYPES.is_empty());
+        for (n, mt) in CONTENT_TYPES.iter().enumerate() {
             assert_eq!(
-                *k,
-                ContentType::try_from(*v).unwrap(),
-                "problem: k = {k} v = {}",
-                std::str::from_utf8(v).unwrap()
+                ContentType::try_from(*mt).unwrap(),
+                ContentType::try_from(n).unwrap(),
+                "problem: n = {n} mt = {}",
+                std::str::from_utf8(mt).unwrap()
             );
         }
     }
 
     #[test]
     fn content_type_lookup_test() {
-        for (k, v) in content_type_lookup() {
-            let content_type = ContentType::try_from(*k);
-            assert!(
-                content_type.is_ok(),
-                "problem: k = {} v = {}",
-                std::str::from_utf8(k).unwrap(),
-                v
-            );
-            assert_eq!(
-                *v,
-                content_type.unwrap(),
-                "problem: k = {} v = {v}",
-                std::str::from_utf8(k).unwrap()
-            );
-            assert_eq!(
-                std::str::from_utf8(k).unwrap(),
-                <&str>::from(v),
-                "problem: k = {} v = {v}",
-                std::str::from_utf8(k).unwrap()
-            );
+        assert!(!CONTENT_TYPES.is_empty());
+        for mt in CONTENT_TYPES {
+            assert!(content_type_lookup(mt).is_some());
         }
     }
 
@@ -312,6 +280,16 @@ mod tests {
             )
             .unwrap(),
             ContentType::TextPlainUtf8
+        );
+
+        assert_eq!(
+            ContentType::try_from(
+                "Content-Type: text/plain; charset=iso8859-1"
+                    .parse::<Header>()
+                    .unwrap()
+            )
+            .unwrap(),
+            ContentType::TextPlain
         );
 
         assert_eq!(
