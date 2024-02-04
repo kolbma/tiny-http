@@ -1,4 +1,10 @@
-use std::{convert::TryFrom, str::FromStr};
+use std::{
+    cell::{Cell, RefCell},
+    collections::{hash_map::DefaultHasher, HashMap},
+    convert::TryFrom,
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
 
 use ascii::{AsAsciiStrError, AsciiStr, AsciiString};
 
@@ -129,11 +135,132 @@ impl TryFrom<&AsciiStr> for Header {
     }
 }
 
+/// Container for [`Header`] data for cached keyed lookup of fields
+#[derive(Debug)]
+pub(crate) struct HeaderData {
+    field_ignore: RefCell<Vec<usize>>,
+    field_map: RefCell<HashMap<u64, Option<Vec<usize>>>>,
+    headers: Vec<Header>,
+    is_field_sort: Cell<bool>,
+}
+
+/// Creates hash for `field`
+macro_rules! field_hash {
+    ($field:expr) => {{
+        let mut hasher = DefaultHasher::new();
+        for b in $field {
+            let mut b = *b;
+            #[allow(clippy::manual_range_contains)]
+            {
+                if b >= 65 && b <= 90 {
+                    b += 32;
+                }
+            }
+            b.hash(&mut hasher);
+        }
+        hasher.finish()
+    }};
+}
+
+impl HeaderData {
+    /// Move the `Vec<Header>` in to create [`HeaderData`]
+    #[must_use]
+    pub(crate) fn new(headers: Vec<Header>) -> Self {
+        Self {
+            field_ignore: RefCell::new(Vec::new()),
+            field_map: RefCell::new(HashMap::new()),
+            headers,
+            is_field_sort: Cell::new(true),
+        }
+    }
+
+    /// Get up to `limit` headers provided with `field`
+    ///
+    /// A [`Request`](crate::Request) can be made with multiple lines of the same
+    /// header field.  
+    /// This is equivalent to providing a comma separated list in one
+    /// header field.
+    ///
+    /// Up to `limit` lines with `field` are returned. It can be less if the header
+    /// has lesser.
+    ///
+    /// If there is no such header `field` available in `Request` `None` is returned.
+    ///
+    pub(crate) fn header<B>(&self, field: &B, limit: Option<usize>) -> Option<Vec<&Header>>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        let field = field_hash!(field.as_ref());
+
+        let field_map = self.field_map.borrow();
+        if let Some(indeces) = field_map.get(&field) {
+            if let Some(indeces) = indeces {
+                let mut v = Vec::new();
+                let limit = limit.unwrap_or(indeces.len());
+                for idx in indeces.iter().take(limit) {
+                    v.push(&self.headers[*idx]);
+                }
+                return Some(v);
+            }
+
+            return None;
+        }
+
+        let mut field_ignore = self.field_ignore.borrow_mut();
+        if field_ignore.len() >= self.headers.len() {
+            return None;
+        }
+
+        drop(field_map);
+
+        let mut indices = Vec::new();
+        let mut v = Vec::new();
+
+        if !self.is_field_sort.get() {
+            field_ignore.sort_unstable();
+            self.is_field_sort.set(true);
+        }
+
+        let limit = limit.unwrap_or(usize::MAX);
+
+        for (idx, header) in self.headers.iter().enumerate() {
+            if field_ignore.binary_search(&idx).is_ok() {
+                continue;
+            }
+            let header_field = field_hash!(header.field.as_bytes());
+            if header_field == field {
+                self.is_field_sort.set(false);
+                field_ignore.push(idx);
+                indices.push(idx);
+                if v.len() < limit {
+                    v.push(header);
+                }
+            }
+        }
+
+        let mut field_map = self.field_map.borrow_mut();
+
+        if indices.is_empty() {
+            let _ = field_map.insert(field, None);
+            return None;
+        }
+
+        let _ = field_map.insert(field, Some(indices));
+        Some(v)
+    }
+
+    /// Returns the list of [`Header`] sent by client in [`Request`](crate::Request)
+    #[inline]
+    pub(crate) fn headers(&self) -> &[Header] {
+        &self.headers
+    }
+}
+
 /// Field of an header (eg. `Content-Type`, `Content-Length`, etc.)
 ///
 /// Comparison between two `HeaderField`s ignores case.
 #[derive(Debug, Clone, Eq)]
-pub struct HeaderField(pub(self) AsciiString);
+pub struct HeaderField(AsciiString);
 
 impl HeaderField {
     /// Create [`HeaderField`] from `bytes`
@@ -268,8 +395,8 @@ impl PartialEq<&str> for HeaderField {
     }
 }
 
-impl std::hash::Hash for HeaderField {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for HeaderField {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.to_ascii_lowercase().hash(state);
     }
 }
@@ -435,14 +562,14 @@ impl std::fmt::Display for HeaderError {
 mod test {
     use std::{
         convert::TryFrom,
-        time::{Duration, SystemTime},
+        time::{Duration, Instant, SystemTime},
     };
 
     use ascii::{AsAsciiStr, AsciiStr, AsciiString};
     use httpdate::HttpDate;
 
     use super::{
-        field_byte_range_check, field_value_byte_range_check, Header, HeaderField,
+        field_byte_range_check, field_value_byte_range_check, Header, HeaderData, HeaderField,
         HeaderFieldValue, HEADER_FORBIDDEN,
     };
 
@@ -650,5 +777,55 @@ mod test {
                 header.unwrap_err()
             );
         }
+    }
+
+    #[test]
+    fn header_data_test() {
+        let headers = vec![
+            Header::from_bytes(b"Host", b"localhost").unwrap(),
+            Header::from_bytes(b"Content-Length", b"69").unwrap(),
+            Header::from_bytes(b"Content-Type", b"text/html").unwrap(),
+            Header::from_bytes(b"X-Data", b"1").unwrap(),
+            Header::from_bytes(b"x-data", b"2").unwrap(),
+            Header::from_bytes(b"X-Data", b"3").unwrap(),
+        ];
+
+        let data = HeaderData::new(headers);
+
+        assert_eq!(data.headers().len(), 6);
+
+        let now = Instant::now();
+        let r1 = data.header(b"X-Data", Some(2));
+        let elaps1 = now.elapsed();
+
+        let now = Instant::now();
+        let r2 = data.header(b"X-Data", Some(2));
+        let elaps2 = now.elapsed();
+
+        assert!(
+            elaps1 > elaps2,
+            "elaps1: {} elaps2: {}",
+            elaps1.as_nanos(),
+            elaps2.as_nanos()
+        );
+        assert_eq!(r1, r2);
+
+        let r3 = data.header(b"content-type", None);
+        let r3 = r3.unwrap();
+        assert_eq!(r3.len(), 1);
+        assert_eq!(r3[0].field.as_bytes(), b"Content-Type");
+
+        let now = Instant::now();
+        let r4 = data.header(b"X-Data", None);
+        let elaps4 = now.elapsed();
+
+        assert_eq!(r4.unwrap().len(), 3);
+
+        assert!(
+            elaps1 > elaps4,
+            "elaps1: {} elaps4: {}",
+            elaps1.as_nanos(),
+            elaps4.as_nanos()
+        );
     }
 }

@@ -4,11 +4,11 @@ use std::io::{self, Cursor, ErrorKind as IoErrorKind, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
+use crate::common::{ConnectionHeader, ConnectionValue, Header, HeaderData, HttpVersion, Method};
 use crate::response::Standard::Continue100;
 use crate::stream_traits::{DataRead, DataReadWrite};
 use crate::util::{EqualReader, FusedReader, NotifyOnDrop};
-use crate::{log, response, ConnectionHeader, ConnectionValue};
-use crate::{Header, HttpVersion, Method, Response};
+use crate::{log, response, Response};
 
 /// Represents an HTTP request made by a client.
 ///
@@ -55,7 +55,7 @@ pub struct Request {
     data_reader: Option<Box<dyn DataRead + Send + 'static>>,
     // true if a `100 Continue` response must be sent when `as_reader()` is called
     expect_continue: bool,
-    headers: Vec<Header>,
+    headers: HeaderData,
     http_version: HttpVersion,
     method: Method,
     // If Some, a message must be sent after responding
@@ -109,7 +109,7 @@ impl Request {
             let _ = response.raw_print_ref(
                 writer.by_ref(),
                 self.http_version,
-                &self.headers,
+                Some(&self.headers),
                 true,
                 None,
             );
@@ -152,11 +152,66 @@ impl Request {
         self.content_type
     }
 
+    /// Get up to `limit` headers provided with `field`
+    ///
+    /// A [`Request`] can be made with multiple lines of the same header field.  
+    /// This is equivalent to providing a comma separated list in one
+    /// header field.
+    ///
+    /// Up to `limit` lines with `field` are returned. It can be less if the header
+    /// has lesser.
+    ///
+    /// If there is no such header `field` available in `Request` `None` is returned.
+    ///
+    #[inline]
+    pub fn header<B>(&self, field: &B, limit: Option<usize>) -> Option<Vec<&Header>>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        self.headers.header(field, limit)
+    }
+
+    /// Get the first header provided with `field`
+    ///
+    /// A [`Request`] can be made with multiple lines of the same header field.  
+    /// This is equivalent to providing a comma separated list in one
+    /// header field.
+    ///
+    /// If there is no such header `field` available in `Request` `None` is returned.
+    ///
+    #[inline]
+    pub fn header_first<B>(&self, field: &B) -> Option<&Header>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        self.headers.header(field, Some(1)).map(|h| h[0])
+    }
+
+    /// Get the last header provided with `field`
+    ///
+    /// See also [`Request::header_first`].
+    ///
+    /// A [`Request`] can be made with multiple lines of the same header field.  
+    /// This is equivalent to providing a comma separated list in one
+    /// header field.
+    ///
+    /// If there is no such header `field` available in `Request` `None` is returned.
+    ///
+    #[inline]
+    pub fn header_last<B>(&self, field: &B) -> Option<&Header>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        self.headers
+            .header(field, None)
+            .and_then(|h| h.last().copied())
+    }
+
     /// Returns a list of all headers sent by the client.
     #[must_use]
     #[inline]
     pub fn headers(&self) -> &[Header] {
-        &self.headers
+        self.headers.headers()
     }
 
     /// Returns the HTTP version of the request.
@@ -310,7 +365,7 @@ impl Request {
         if let Err(err) = response.raw_print(
             self.response_writer.as_mut().unwrap(),
             self.http_version,
-            &self.headers,
+            Some(&self.headers),
             false,
             Some(protocol),
         ) {
@@ -443,7 +498,7 @@ impl Request {
             content_type: search_header.content_type,
             data_reader: Some(reader),
             expect_continue: search_header.expect_continue,
-            headers,
+            headers: HeaderData::new(headers),
             http_version: version,
             method,
             notify_when_responded: None,
@@ -518,7 +573,7 @@ impl Request {
         Self::ignore_client_closing_errors(response.raw_print(
             writer.by_ref(),
             self.http_version,
-            &self.headers,
+            Some(&self.headers),
             do_not_send_body,
             None,
         ))?;
@@ -545,7 +600,7 @@ impl Request {
         Self::ignore_client_closing_errors(response.raw_print_ref(
             writer.by_ref(),
             self.http_version,
-            &self.headers,
+            Some(&self.headers),
             do_not_send_body,
             None,
         ))?;

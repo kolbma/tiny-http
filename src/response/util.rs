@@ -4,14 +4,16 @@ use std::convert::TryFrom;
 use std::hash::Hash;
 use std::io::{Result as IoResult, Write};
 
-use crate::{common, Header, HeaderField, HeaderFieldValue, HttpVersion, StatusCode};
+use crate::common::{
+    self, Header, HeaderData, HeaderField, HeaderFieldValue, HttpVersion, StatusCode,
+};
 
 use super::date_header::DateHeader;
 use super::transfer_encoding::TransferEncoding;
 
 pub(super) fn choose_transfer_encoding(
     status_code: StatusCode,
-    request_headers: &[Header],
+    request_headers: Option<&HeaderData>,
     http_version: HttpVersion,
     entity_length: &Option<usize>,
     has_additional_headers: bool,
@@ -31,40 +33,6 @@ pub(super) fn choose_transfer_encoding(
         return TransferEncoding::Identity;
     }
 
-    // parsing the request's TE header
-    let user_request = request_headers
-        .iter()
-        // finding TE and get value
-        .find_map(|h| {
-            // getting the corresponding TransferEncoding
-            if h.field.equiv("TE") {
-                // getting list of requested elements
-                let mut parse = util::parse_header_value(&h.value);
-
-                // sorting elements by most priority
-                parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-
-                // trying to parse each requested encoding
-                for value in parse {
-                    // q=0 are ignored
-                    if value.1 <= 0.0 {
-                        continue;
-                    }
-
-                    if let Ok(te) = TransferEncoding::try_from(value.0) {
-                        return Some(te);
-                    }
-                }
-            }
-
-            // No transfer encoding found
-            None
-        });
-
-    if let Some(user_request) = user_request {
-        return user_request;
-    }
-
     // if we have additional headers, using chunked
     if has_additional_headers {
         return TransferEncoding::Chunked;
@@ -78,6 +46,31 @@ pub(super) fn choose_transfer_encoding(
         return TransferEncoding::Chunked;
     }
 
+    // parsing the request's TE header
+    if let Some(request_headers) = request_headers {
+        // getting the corresponding TransferEncoding
+        if let Some(h) = request_headers.header(b"TE", Some(1)) {
+            let h = h[0];
+            // getting list of requested elements
+            let mut parse = util::parse_header_value(&h.value);
+
+            // sorting elements by most priority
+            parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+
+            // trying to parse each requested encoding
+            for value in parse {
+                // q=0 are ignored
+                if value.1 <= 0.0 {
+                    continue;
+                }
+
+                if let Ok(te) = TransferEncoding::try_from(value.0) {
+                    return te;
+                }
+            }
+        }
+    }
+
     // Identity by default
     TransferEncoding::Identity
 }
@@ -89,7 +82,7 @@ where
     S: Into<StatusCode>,
 {
     // TODO: check status codes with body supported
-    matches!(status_code.into().0, 100..=199 | 204 | 304) // status code 1xx, 204, 205 and 304 MUST not include a body
+    matches!(status_code.into().0, 100..=199 | 204 | 205 | 304) // status code 1xx, 204, 205 and 304 MUST not include a body
 }
 
 #[inline]

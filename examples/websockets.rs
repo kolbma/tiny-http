@@ -229,6 +229,12 @@ fn transform_octets(mask_key: [u8; 4], payload_data: &[u8]) -> Vec<u8> {
     transformed
 }
 
+macro_rules! is_some_and_eq {
+    ($opt:expr, $expr:expr) => {
+        $opt.map(|h| h.value == $expr).unwrap_or_default()
+    };
+}
+
 /// Proof-of-concept implementation for a `WebSocket` server sending Pings
 /// receiving Pongs and responding with received text messages
 #[allow(clippy::too_many_lines)]
@@ -241,10 +247,8 @@ fn main() {
         // we are handling this websocket connection in a new task
         let _ = thread::spawn(move || {
             // checking the "Upgrade" header to check that it is a websocket
-            let upgrade_requested = request
-                .headers()
-                .iter()
-                .any(|h| h.field.equiv("Upgrade") && h.value == "websocket");
+            let upgrade_requested =
+                is_some_and_eq!(request.header_first(b"Upgrade"), b"websocket".as_ref());
 
             // provide html + websocket javascript to browser
             if !upgrade_requested {
@@ -258,10 +262,10 @@ fn main() {
 
             // browser upgrades to WS
             // getting the value of Sec-WebSocket-Version
-            let is_version_compatible = request
-                .headers()
-                .iter()
-                .any(|h| h.field.equiv("Sec-WebSocket-Version") && h.value.as_str() == "13");
+            let is_version_compatible = is_some_and_eq!(
+                request.header_first(b"Sec-WebSocket-Version"),
+                b"13".as_ref()
+            );
             if !is_version_compatible {
                 return request
                     .respond(
@@ -275,13 +279,9 @@ fn main() {
             }
 
             // getting the value of Sec-WebSocket-Key and convert for Sec-WebSocket-Accept
-            let sec_websocket_accept = request.headers().iter().find_map(|h| {
-                if h.field.equiv("Sec-WebSocket-Key") {
-                    Some(convert_key(h.value.as_bytes()))
-                } else {
-                    None
-                }
-            });
+            let sec_websocket_accept = request
+                .header_first(b"Sec-WebSocket-Key")
+                .map(|h| convert_key(h.value.as_bytes()));
 
             // building the "101 Switching Protocols" response
             let mut response = Response::empty(101)

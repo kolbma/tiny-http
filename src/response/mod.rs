@@ -8,8 +8,9 @@ use std::fs::File;
 use std::io::{self, Cursor, Read, Result as IoResult, Write};
 use std::sync::mpsc::Receiver;
 
-use crate::common::{self, Header, HeaderError, HttpVersion, StatusCode};
-use crate::{ConnectionValue, HeaderField};
+use crate::common::{
+    self, ConnectionValue, Header, HeaderData, HeaderError, HeaderField, HttpVersion, StatusCode,
+};
 
 pub use self::standard::{Standard, StandardResponse};
 use self::transfer_encoding::TransferEncoding;
@@ -299,11 +300,11 @@ where
     ///
     /// - when `upgrade` is not ascii
     ///
-    pub fn raw_print<W: Write>(
+    pub(crate) fn raw_print<W: Write>(
         mut self,
         mut writer: W,
         http_version: HttpVersion,
-        request_headers: &[Header],
+        request_headers: Option<&HeaderData>,
         do_not_send_body: bool,
         upgrade: Option<&str>,
     ) -> IoResult<()> {
@@ -646,11 +647,11 @@ where
     ///
     /// - when `upgrade` is not ascii
     ///
-    pub fn raw_print_ref<W: Write>(
+    pub(crate) fn raw_print_ref<W: Write>(
         &self,
         mut writer: W,
         http_version: HttpVersion,
-        request_headers: &[Header],
+        request_headers: Option<&HeaderData>,
         do_not_send_body: bool,
         upgrade: Option<&str>,
     ) -> IoResult<()> {

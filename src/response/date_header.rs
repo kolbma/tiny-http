@@ -8,7 +8,7 @@ use ascii::AsciiString;
 use httpdate::HttpDate;
 use lazy_static::lazy_static;
 
-use crate::{Header, HeaderFieldValue};
+use crate::common::{Header, HeaderFieldValue};
 
 /// Fixed length date and time in bytes e.g. Mon, 29 Jan 2024 22:13:01 GMT
 const DATE_TIME_SAMPLE: &[u8; 29] = b"Mon, 29 Jan 2024 22:13:01 GMT";

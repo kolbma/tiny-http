@@ -386,13 +386,9 @@ impl Iterator for ClientConnection {
             .ok()?;
 
         // updating the status of the connection
-        let connection_header = rq.headers().iter().find_map(|h| {
-            if h.field.equiv("Connection") {
-                ConnectionHeader::try_from(&h.value).ok()
-            } else {
-                None
-            }
-        });
+        let connection_header = rq
+            .header_first(b"Connection")
+            .and_then(|h| ConnectionHeader::try_from(&h.value).ok());
 
         let mut rq = rq;
 
@@ -469,7 +465,7 @@ fn send_error_std_response(
         response.status_code()
     );
 
-    let _ = response.raw_print_ref(writer, version, &[], do_not_send_body, None);
+    let _ = response.raw_print_ref(writer, version, None, do_not_send_body, None);
 }
 
 #[inline]

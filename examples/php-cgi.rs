@@ -91,6 +91,13 @@ fn handle(rq: tiny_http::Request, script: &str) -> Result<(), IoError> {
     }
 }
 
+macro_rules! is_some_and_contains {
+    ($opt:expr, $expr:expr) => {
+        $opt.map(|h| h.value.as_str().contains($expr))
+            .unwrap_or_default()
+    };
+}
+
 fn main() {
     let php_script = Arc::new({
         let mut args = env::args();
@@ -114,11 +121,7 @@ fn main() {
 
         jhs.push(thread::spawn(move || {
             for rq in server.incoming_requests() {
-                if rq
-                    .headers()
-                    .iter()
-                    .any(|h| h.field.equiv("Accept") && h.value.as_str().contains("text/html"))
-                {
+                if is_some_and_contains!(rq.header_first(b"Accept"), "text/html") {
                     if let Err(err) = handle(rq, &php_script) {
                         eprintln!("php error: {err:?}");
                     }
