@@ -500,24 +500,23 @@ impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ExpectationFailed(v) => {
-                write!(f, "unrecognized expect: {}", v.header())
+                f.write_str("unrecognized expect: ")?;
+                f.write_str(v.header())
             }
-            Self::Header(v) => write!(f, "unsupported header: {}", v.header()),
+            Self::Header(v) => {
+                f.write_str("unsupported header: ")?;
+                f.write_str(v.header())
+            }
             Self::HttpProtocol(v, status) => {
                 let response = <&response::StandardResponse>::from(status);
-                write!(
-                    f,
-                    "{} {} {}",
-                    v.header(),
-                    response.status_code(),
-                    response.as_utf8_str().unwrap() // StandardResponse has data set
-                )
+                f.write_str(v.header())?;
+                f.write_str(&response.status_code().to_string())?;
+                f.write_str(response.as_utf8_str().unwrap()) // StandardResponse has valid utf-8 data set
             }
-            Self::HttpVersion(v) => write!(
-                f,
-                "unsupported version: {}",
-                v.map(|v| v.header()).unwrap_or_default()
-            ),
+            Self::HttpVersion(v) => {
+                f.write_str("unsupported version: ")?;
+                f.write_str(v.map(|v| v.header()).unwrap_or_default())
+            }
             Self::ReadIoError(err) => err.fmt(f),
             Self::RequestLine => f.write_str("no request"),
             Self::RfcViolation => f.write_str("http rfc violation"),
