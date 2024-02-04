@@ -47,7 +47,9 @@ impl FromStr for Header {
 
 impl std::fmt::Display for Header {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}: {}", self.field, self.value.as_str())
+        f.write_str(self.field.as_str())?;
+        f.write_str(": ")?;
+        f.write_str(self.value.as_str())
     }
 }
 
@@ -244,9 +246,21 @@ impl std::fmt::Display for HeaderField {
 
 impl PartialEq for HeaderField {
     fn eq(&self, other: &HeaderField) -> bool {
-        let self_str: &str = self.as_str();
-        let other_str = other.as_str();
-        self_str.eq_ignore_ascii_case(other_str)
+        let self_bytes = self.as_bytes();
+        let other_bytes = other.as_bytes();
+        self_bytes.eq_ignore_ascii_case(other_bytes)
+    }
+}
+
+impl PartialEq<&[u8]> for HeaderField {
+    fn eq(&self, other: &&[u8]) -> bool {
+        self.0.as_bytes().eq_ignore_ascii_case(other)
+    }
+}
+
+impl PartialEq<&str> for HeaderField {
+    fn eq(&self, other: &&str) -> bool {
+        self.0.as_str().eq_ignore_ascii_case(other)
     }
 }
 
@@ -569,10 +583,13 @@ mod test {
 
     #[test]
     fn parse_header_test() {
-        let header: Header = "Content-Type: text/html".parse().unwrap();
+        let s = "Content-Type: text/html";
+        let header: Header = s.parse().unwrap();
 
         assert!(header.field.equiv("content-type"));
         assert!(header.value.as_str() == "text/html");
+
+        assert_eq!(&header.to_string(), s);
 
         assert!("hello world".parse::<Header>().is_err());
     }
