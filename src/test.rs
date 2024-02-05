@@ -85,7 +85,7 @@ impl Default for TestRequest {
             headers: Vec::new(),
             http_version: HttpVersion::Version1_1,
             method: Method::Get,
-            path: "/".to_string(),
+            path: "/".to_owned(),
             remote_addr: "127.0.0.1:23456".parse().unwrap(),
             secure: false,
         }
@@ -125,7 +125,7 @@ impl TestRequest {
 
     #[must_use]
     pub fn with_path(mut self, path: &str) -> Self {
-        self.path = path.to_string();
+        self.path = path.to_owned();
         self
     }
 

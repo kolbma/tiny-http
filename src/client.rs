@@ -4,8 +4,6 @@ use std::io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use ascii::AsciiString;
-
 use crate::common::{HttpVersion, Method};
 use crate::response::Standard::{
     BadRequest400, ExpectationFailed417, HttpVersionNotSupported505,
@@ -240,10 +238,7 @@ impl ClientConnection {
                 parse_request_line(&line_buf)?
             };
 
-            let path = AsciiString::from_ascii(path).map_err(|err| {
-                // shouldn't happen because checked already in read_next_line()
-                ReadError::ReadIoError(IoError::new(IoErrorKind::InvalidInput, err.ascii_error()))
-            })?;
+            let path = std::str::from_utf8(path).unwrap().to_owned();
 
             // getting all headers
             let headers = {
@@ -290,7 +285,7 @@ impl ClientConnection {
             self.limits.content_buffer_size,
             headers,
             method,
-            String::from(path), // no cloning this way
+            path,
             self.secure,
             version,
             *self.remote_addr.as_ref().unwrap(),
