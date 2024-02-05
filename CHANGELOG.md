@@ -29,9 +29,13 @@
 
   Can be constructed similar to Header.field or Header.
 
+* BREAKING CHANGE: Header/HeaderField::from_bytes differen param types (maybe reference needed now)
+
 * BREAKING CHANGE: Request::body_length is deprecated and renamed to Request::content_length
 
 * BREAKING CHANGE: Response: some methods return an `Option<Vec>` with `None` instead of empty `Vec` 
+
+* BREAKING CHANGE: StatusCodes have reason phrases from RFC9110
 
 * BREAKING CHANGE: ServerConfig has field ssl for SslConfig only when any ssl feature is enabled.
 
@@ -42,6 +46,12 @@
   _native-tls_ is a crate that will pick the platforms native TLS implementation depending on the chosen build target.
 
 * _log_ feature can disable log support
+
+* Strict checks of HTTP request line and headers for invalid, not RFC conform byte values
+
+* Methods for Request to get headers by field name with cached lookup
+
+* HeaderField/Value provides many converters and PartialEq for easy compare
 
 * Update rustls to v0.22, rustls-pemfile to v2.0
 
