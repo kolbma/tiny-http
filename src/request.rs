@@ -423,6 +423,7 @@ impl Request {
         headers.cache_header(&[
             &b"Connection"[..],
             b"Content-Length",
+            #[cfg(feature = "content-type")]
             b"Content-Type",
             b"Expect",
             b"Transfer-Encoding",
