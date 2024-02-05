@@ -240,6 +240,11 @@ impl ClientConnection {
                 parse_request_line(&line_buf)?
             };
 
+            let path = AsciiString::from_ascii(path).map_err(|err| {
+                // shouldn't happen because checked already in read_next_line()
+                ReadError::ReadIoError(IoError::new(IoErrorKind::InvalidInput, err.ascii_error()))
+            })?;
+
             // getting all headers
             let headers = {
                 let mut headers = Vec::new();
@@ -549,42 +554,62 @@ impl From<(request::CreateError, HttpVersion)> for ReadError {
 /// Parses the request line of the request.
 /// eg. GET / HTTP/1.1
 /// At the moment supporting 0.9, 1.0, 1.1
-fn parse_request_line(line: &[u8]) -> Result<(Method, AsciiString, HttpVersion), ReadError> {
-    let mut parts = line.split(|b| *b == 32);
+#[inline]
+fn parse_request_line(line: &[u8]) -> Result<(Method, &[u8], HttpVersion), ReadError> {
+    let mut method_pos = (0, 0);
+    let mut path_pos = (0, 0);
+    let mut version_pos = (0, 0);
 
-    let method = parts
-        .next()
-        .map(Method::from)
-        .ok_or(ReadError::RequestLine)?;
-    let path = parts.next().ok_or(ReadError::RequestLine)?;
-    let version = parts
-        .next()
-        .map(|w| {
-            if let Ok(ver) = HttpVersion::try_from(w) {
-                return if ver <= HttpVersion::Version1_1 {
-                    // only up to 1.1 supported
-                    Ok(ver)
-                } else {
-                    Err(ReadError::HttpVersion(Some(ver)))
-                };
+    let mut is_next = false;
+    let mut pos = 0;
+
+    #[allow(clippy::explicit_counter_loop)] // it's faster than iterator
+    for &b in line {
+        if b == 32 {
+            if is_next {
+                // more spaces than allowed
+                return Err(ReadError::RequestLine);
             }
-            Err(ReadError::HttpVersion(None))
-        })
-        .ok_or(ReadError::RequestLine)??;
+            is_next = true;
+            if method_pos.1 == 0 {
+                method_pos.1 = pos;
+            } else if path_pos.1 == 0 {
+                path_pos.1 = pos;
+            } else if version_pos.1 == 0 {
+                // should be at the end of line
+                return Err(ReadError::RequestLine);
+            }
+        } else if is_next {
+            is_next = false;
+            if path_pos.0 == 0 {
+                path_pos.0 = pos;
+            } else if version_pos.0 == 0 {
+                version_pos.0 = pos;
+                break; // start of last part
+            }
+        }
 
-    if parts.next().is_some() {
-        // more spaces than allowed
+        pos += 1;
+    }
+
+    if method_pos.1 == 0 || path_pos.1 == 0 {
         return Err(ReadError::RequestLine);
     }
 
-    Ok((
-        method,
-        AsciiString::from_ascii(path).map_err(|err| {
-            // shouldn't happen because checked already in read_next_line()
-            ReadError::ReadIoError(IoError::new(IoErrorKind::InvalidInput, err.ascii_error()))
-        })?,
-        version,
-    ))
+    let method = Method::from(&line[method_pos.0..method_pos.1]);
+    let path = &line[path_pos.0..path_pos.1];
+    let version = if let Ok(ver) = HttpVersion::try_from(&line[version_pos.0..]) {
+        if ver <= HttpVersion::Version1_1 {
+            // only up to 1.1 supported
+            ver
+        } else {
+            return Err(ReadError::HttpVersion(Some(ver)));
+        }
+    } else {
+        return Err(ReadError::HttpVersion(None));
+    };
+
+    Ok((method, path, version))
 }
 
 #[cfg(test)]
@@ -596,7 +621,7 @@ mod test {
         let (method, path, ver) = super::parse_request_line(&b"GET /hello HTTP/1.1"[..]).unwrap();
 
         assert!(method == crate::Method::Get);
-        assert!(path == "/hello");
+        assert!(path == b"/hello");
         assert!(ver == HttpVersion::Version1_1);
 
         assert!(super::parse_request_line(&b"GET /hello"[..]).is_err());
