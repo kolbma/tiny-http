@@ -133,6 +133,14 @@ impl PartialEq for ConnectionHeader {
     }
 }
 
+/// [`ConnectionHeader`] is `eq` if it contains [`ConnectionValue`]
+impl PartialEq<ConnectionValue> for ConnectionHeader {
+    /// [`ConnectionHeader`] is `eq` if it contains single [`ConnectionValue`] of `other`
+    fn eq(&self, other: &ConnectionValue) -> bool {
+        self.inner & (*other as u8) == (*other as u8)
+    }
+}
+
 /// Iterator over priorized [`ConnectionValue`] of [`ConnectionHeader`]
 #[derive(Debug)]
 pub struct ConnectionHeaderIterator<'a> {
@@ -382,6 +390,43 @@ mod tests {
         };
 
         assert_ne!(ch_1, ch_2);
+    }
+
+    #[test]
+    fn connection_header_value_cmp_eq() {
+        let ch = ConnectionHeader {
+            inner: ConnectionValue::KeepAlive as u8
+                | ConnectionValue::Upgrade as u8
+                | ConnectionValue::Close as u8,
+        };
+
+        assert_eq!(ch, ConnectionValue::KeepAlive);
+        assert_eq!(ch, ConnectionValue::Upgrade);
+        assert_eq!(ch, ConnectionValue::Close);
+
+        let ch = ConnectionHeader {
+            inner: ConnectionValue::KeepAlive as u8,
+        };
+
+        assert_eq!(ch, ConnectionValue::KeepAlive);
+        assert_ne!(ch, ConnectionValue::Upgrade);
+        assert_ne!(ch, ConnectionValue::Close);
+
+        let ch = ConnectionHeader {
+            inner: ConnectionValue::Close as u8,
+        };
+
+        assert_ne!(ch, ConnectionValue::KeepAlive);
+        assert_ne!(ch, ConnectionValue::Upgrade);
+        assert_eq!(ch, ConnectionValue::Close);
+
+        let ch = ConnectionHeader {
+            inner: ConnectionValue::Upgrade as u8,
+        };
+
+        assert_ne!(ch, ConnectionValue::KeepAlive);
+        assert_eq!(ch, ConnectionValue::Upgrade);
+        assert_ne!(ch, ConnectionValue::Close);
     }
 
     #[test]
