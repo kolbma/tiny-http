@@ -426,6 +426,7 @@ impl Request {
             #[cfg(feature = "content-type")]
             b"Content-Type",
             b"Expect",
+            b"TE", // is needed in response::util::choose_transfer_encoding
             b"Transfer-Encoding",
         ]);
 
