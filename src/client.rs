@@ -558,7 +558,8 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, &[u8], HttpVersion), ReadE
     let mut is_next = false;
     let mut pos = 0;
 
-    #[allow(clippy::explicit_counter_loop)] // it's faster than iterator
+    #[allow(clippy::explicit_counter_loop, clippy::manual_range_contains)]
+    // it's faster than iterator
     for &b in line {
         if b == 32 {
             if is_next {
@@ -574,6 +575,8 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, &[u8], HttpVersion), ReadE
                 // should be at the end of line
                 return Err(ReadError::RequestLine);
             }
+        } else if !((b >= 63 && b <= 126) || (b >= 36 && b <= 59) || b == 61 || b == 33) {
+            return Err(ReadError::RequestLine);
         } else if is_next {
             is_next = false;
             if path_pos.0 == 0 {
@@ -625,6 +628,14 @@ mod test {
         assert!(super::parse_request_line(&b"GET /hello HTTP/1.1 "[..]).is_err());
         assert!(super::parse_request_line(&b"GET   /hello HTTP/1.1"[..]).is_err());
         assert!(super::parse_request_line(&b"GET /hello   HTTP/1.1"[..]).is_err());
+
+        assert!(super::parse_request_line(&b"GET /hello?q=1 HTTP/1.1"[..]).is_ok());
+        assert!(super::parse_request_line(&b"GET /hello?q=1#local HTTP/1.1"[..]).is_err());
+        assert!(
+            super::parse_request_line(&b"GET https://localhost:8080/index.html HTTP/1.1"[..])
+                .is_ok()
+        );
+        assert!(super::parse_request_line(&b"OPTIONS * HTTP/1.1"[..]).is_ok());
 
         let (method, _, _) = super::parse_request_line(&b"loGET /hello HTTP/1.1"[..]).unwrap();
         assert_eq!(
