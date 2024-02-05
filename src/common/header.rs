@@ -6,6 +6,8 @@ use std::{
 
 use ascii::{AsAsciiStrError, AsciiStr, AsciiString};
 
+use crate::response::util::number_to_bytes;
+
 /// Represents a HTTP header.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Header {
@@ -381,6 +383,18 @@ impl TryFrom<AsciiString> for HeaderFieldValue {
         field_value_byte_range_check(ascii_string.as_bytes())?;
 
         Ok(HeaderFieldValue(ascii_string))
+    }
+}
+
+impl TryFrom<usize> for HeaderFieldValue {
+    type Error = HeaderError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(HeaderFieldValue({
+            let mut buf = [0; 20]; // 20 is 64bit max digits
+            AsciiString::from_ascii(number_to_bytes!(value, &mut buf, 20))
+                .map_err(|err| HeaderError::Ascii(err.ascii_error()))?
+        }))
     }
 }
 
