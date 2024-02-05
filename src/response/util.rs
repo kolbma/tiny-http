@@ -4,16 +4,14 @@ use std::convert::TryFrom;
 use std::hash::Hash;
 use std::io::{Result as IoResult, Write};
 
-use crate::common::{
-    self, Header, HeaderData, HeaderField, HeaderFieldValue, HttpVersion, StatusCode,
-};
+use crate::common::{self, Header, HeaderField, HeaderFieldValue, HttpVersion, StatusCode};
 
 use super::date_header::DateHeader;
 use super::transfer_encoding::TransferEncoding;
 
 pub(super) fn choose_transfer_encoding(
     status_code: StatusCode,
-    request_headers: Option<&HeaderData>,
+    te_headers: &Option<Vec<&Header>>,
     http_version: HttpVersion,
     entity_length: &Option<usize>,
     has_additional_headers: bool,
@@ -47,26 +45,24 @@ pub(super) fn choose_transfer_encoding(
     }
 
     // parsing the request's TE header
-    if let Some(request_headers) = request_headers {
+    if let Some(te_headers) = &te_headers {
         // getting the corresponding TransferEncoding
-        if let Some(h) = request_headers.header(b"TE", Some(1)) {
-            let h = h[0];
-            // getting list of requested elements
-            let mut parse = util::parse_header_value(&h.value);
+        let h = te_headers[0];
+        // getting list of requested elements
+        let mut parse = util::parse_header_value(&h.value);
 
-            // sorting elements by most priority
-            parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        // sorting elements by most priority
+        parse.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
 
-            // trying to parse each requested encoding
-            for value in parse {
-                // q=0 are ignored
-                if value.1 <= 0.0 {
-                    continue;
-                }
+        // trying to parse each requested encoding
+        for value in parse {
+            // q=0 are ignored
+            if value.1 <= 0.0 {
+                continue;
+            }
 
-                if let Ok(te) = TransferEncoding::try_from(value.0) {
-                    return te;
-                }
+            if let Ok(te) = TransferEncoding::try_from(value.0) {
+                return te;
             }
         }
     }
@@ -210,12 +206,9 @@ pub(super) fn update_te_headers(
         }
         Some(TransferEncoding::Identity) => {
             debug_assert!(data_length.is_some());
-            let data_length = data_length.unwrap();
 
             let mut cl_header = common::static_header::CONTENT_LENGTH_HEADER.clone();
-            let mut buf = [0u8; 20]; // 20 is 64bit max digits
-            cl_header.value =
-                HeaderFieldValue::try_from(number_to_bytes!(data_length, &mut buf, 20)).unwrap();
+            cl_header.value = HeaderFieldValue::try_from(data_length.unwrap()).unwrap();
 
             headers.push(cl_header);
         }

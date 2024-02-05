@@ -312,7 +312,7 @@ where
 
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
             self.status_code,
-            request_headers,
+            &request_headers.and_then(|h| h.header(b"TE", None)),
             http_version,
             &self.data_length,
             false, /* TODO */
@@ -659,7 +659,7 @@ where
 
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
             self.status_code,
-            request_headers,
+            &request_headers.and_then(|h| h.header(b"TE", None)),
             http_version,
             &self.data_length,
             false, /* TODO: additional_headers receiving feature */
