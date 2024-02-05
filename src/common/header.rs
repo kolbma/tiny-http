@@ -174,6 +174,53 @@ impl HeaderData {
         }
     }
 
+    /// Prepares cache for multiple fields for faster retrieve
+    pub(crate) fn cache_header<B>(&self, fields: &[B])
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        let mut field_ignore = self.field_ignore.borrow_mut();
+        if field_ignore.len() >= self.headers.len() {
+            return;
+        }
+
+        let mut indices = HashMap::new();
+
+        if !self.is_field_sort.get() {
+            field_ignore.sort_unstable();
+            self.is_field_sort.set(true);
+        }
+
+        let mut field_hash = Vec::new();
+        for field in fields {
+            let field = field_hash!(field.as_ref());
+            field_hash.push(field);
+            let _ = indices.insert(field, Vec::new());
+        }
+        field_hash.sort_unstable();
+
+        for (idx, header) in self.headers.iter().enumerate() {
+            if field_ignore.binary_search(&idx).is_ok() {
+                continue;
+            }
+
+            let header_field = field_hash!(header.field.as_bytes());
+            if field_hash.binary_search(&header_field).is_ok() {
+                self.is_field_sort.set(false);
+                field_ignore.push(idx);
+                indices.get_mut(&header_field).unwrap().push(idx);
+            }
+        }
+
+        let mut field_map = self.field_map.borrow_mut();
+
+        for (field, indices) in indices {
+            if !indices.is_empty() {
+                let _ = field_map.insert(field, Some(indices));
+            }
+        }
+    }
+
     /// Get up to `limit` headers provided with `field`
     ///
     /// A [`Request`](crate::Request) can be made with multiple lines of the same
@@ -247,6 +294,40 @@ impl HeaderData {
 
         let _ = field_map.insert(field, Some(indices));
         Some(v)
+    }
+
+    /// Get the first header provided with `field`
+    ///
+    /// A [`Request`](crate::Request) can be made with multiple lines of the same header field.  
+    /// This is equivalent to providing a comma separated list in one
+    /// header field.
+    ///
+    /// If there is no such header `field` available in `Request` `None` is returned.
+    ///
+    #[inline]
+    pub(crate) fn header_first<B>(&self, field: &B) -> Option<&Header>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        self.header(field, Some(1)).map(|h| h[0])
+    }
+
+    /// Get the last header provided with `field`
+    ///
+    /// See also [`Self::header_first`].
+    ///
+    /// A [`Request`] can be made with multiple lines of the same header field.  
+    /// This is equivalent to providing a comma separated list in one
+    /// header field.
+    ///
+    /// If there is no such header `field` available in `Request` `None` is returned.
+    ///
+    #[inline]
+    pub(crate) fn header_last<B>(&self, field: &B) -> Option<&Header>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        self.header(field, None).and_then(|h| h.last().copied())
     }
 
     /// Returns the list of [`Header`] sent by client in [`Request`](crate::Request)

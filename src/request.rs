@@ -184,7 +184,7 @@ impl Request {
     where
         B: AsRef<[u8]> + Into<Vec<u8>>,
     {
-        self.headers.header(field, Some(1)).map(|h| h[0])
+        self.headers.header_first(field)
     }
 
     /// Get the last header provided with `field`
@@ -202,9 +202,7 @@ impl Request {
     where
         B: AsRef<[u8]> + Into<Vec<u8>>,
     {
-        self.headers
-            .header(field, None)
-            .and_then(|h| h.last().copied())
+        self.headers.header_last(field)
     }
 
     /// Returns a list of all headers sent by the client.
@@ -420,34 +418,64 @@ impl Request {
         R: DataRead + Send + 'static,
         W: Write + Send + 'static,
     {
-        let mut search_header = SearchHeader::parse(&headers)?;
+        let headers = HeaderData::new(headers);
 
-        if search_header.transfer_encoding.is_some() {
+        headers.cache_header(&[
+            &b"Connection"[..],
+            b"Content-Length",
+            b"Content-Type",
+            b"Expect",
+            b"Transfer-Encoding",
+        ]);
+
+        let is_transfer_encoding = headers.header_first(b"Transfer-Encoding").is_some();
+        let connection_header = headers
+            .header_first(b"Connection")
+            .and_then(|h| ConnectionHeader::try_from(&h.value).ok());
+
+        let is_upgrade = connection_header
+            .as_ref()
+            .map_or(false, |h| *h == ConnectionValue::Upgrade);
+        // let mut search_header = SearchHeader::parse(&headers)?;
+
+        let content_length = if is_upgrade || is_transfer_encoding {
             // if transfer-encoding is specified, the Content-Length
             // header must be ignored (RFC2616 #4.4)
-            search_header.content_length = None;
-        }
+            None
+        } else if let Some(h) = headers.header_first(b"Content-Length") {
+            h.value.as_str().parse::<usize>().ok()
+        } else {
+            None
+        };
+
+        let expect_continue = if let Some(h) = headers.header_first(b"Expect") {
+            if h.value == "100-continue" {
+                true
+            } else {
+                return Err(CreateError::Expect);
+            }
+        } else {
+            false
+        };
 
         // we wrap `source_data` around a reading whose nature depends on the transfer-encoding and
         // content-length headers
-        let reader = if search_header.connections == Some(ConnectionValue::Upgrade.into()) {
+        let reader = if is_upgrade {
             // if we have a `Connection: upgrade`, always keeping the whole reader
             Box::new(source_data)
-        } else if let Some(content_length) = search_header.content_length {
+        } else if let Some(content_length) = content_length {
             if content_length == 0 {
                 Box::new(io::empty())
-            } else if content_length <= buf_size && !search_header.expect_continue {
+            } else if content_length <= buf_size && !expect_continue {
                 // if the content-length is small enough (`buf_size`), we just read everything into a buffer
                 // see [`LimitsConfig`](crate::LimitsConfig)
 
+                let is_connection_close = connection_header
+                    .as_ref()
+                    .map_or(false, |h| *h == ConnectionValue::Close);
+
                 // next request in keep-alive connection, follows possible immediately after content-length
-                let mut buffer = vec![
-                    0;
-                    content_length
-                        + usize::from(
-                            search_header.connections == Some(ConnectionValue::Close.into())
-                        )
-                ];
+                let mut buffer = vec![0; content_length + usize::from(is_connection_close)];
                 let mut offset = 0;
 
                 while offset < content_length {
@@ -459,10 +487,7 @@ impl Request {
                     offset += read;
                 }
 
-                if offset < content_length
-                    || (offset != content_length
-                        && search_header.connections == Some(ConnectionValue::Close.into()))
-                {
+                if offset < content_length || (offset != content_length && is_connection_close) {
                     // on Connection: close it needs to match, because there may be no next request in stream
                     return Err(CreateError::ContentLength);
                 }
@@ -477,7 +502,7 @@ impl Request {
                     Box::new(FusedReader::new(data_reader)) as Box<dyn DataRead + Send + 'static>
                 }
             }
-        } else if search_header.transfer_encoding.is_some() {
+        } else if is_transfer_encoding {
             // if a transfer-encoding was specified, then "chunked" is ALWAYS applied over the message (RFC2616 #3.6)
             #[allow(trivial_casts)]
             {
@@ -492,13 +517,15 @@ impl Request {
         };
 
         Ok(Request {
-            connection_header: search_header.connections,
-            content_length: search_header.content_length,
+            connection_header,
+            content_length,
             #[cfg(feature = "content-type")]
-            content_type: search_header.content_type,
+            content_type: headers
+                .header_first(b"Content-Type")
+                .and_then(|h| crate::ContentType::try_from(h).ok()),
             data_reader: Some(reader),
-            expect_continue: search_header.expect_continue,
-            headers: HeaderData::new(headers),
+            expect_continue,
+            headers,
             http_version: version,
             method,
             notify_when_responded: None,
@@ -690,81 +717,6 @@ impl std::fmt::Display for CreateError {
 impl From<IoError> for CreateError {
     fn from(err: IoError) -> CreateError {
         CreateError::IoError(err)
-    }
-}
-
-struct SearchHeader<'a> {
-    connections: Option<ConnectionHeader>,
-    content_length: Option<usize>,
-    #[cfg(feature = "content-type")]
-    content_type: Option<crate::ContentType>,
-    expect_continue: bool,
-    transfer_encoding: Option<&'a [u8]>,
-}
-
-impl<'a> SearchHeader<'a> {
-    /// Iterates header fields once and collects [`SearchHeader`]
-    ///
-    /// # Errors
-    ///
-    /// [`CreateError::Expect`] if not supported `Expect` header found
-    ///
-    #[inline]
-    fn parse(headers: &'a Vec<Header>) -> Result<Self, CreateError> {
-        // search headers for these fields and do bit marking in found_headers
-        let mut search_header = SearchHeader {
-            connections: None,
-            content_length: None,
-            #[cfg(feature = "content-type")]
-            content_type: None,
-            expect_continue: false,
-            transfer_encoding: None,
-        };
-
-        let mut found_headers = 0u8;
-
-        for header in headers {
-            let f = &header.field;
-            if f.equiv("Connection") {
-                search_header.connections = ConnectionHeader::try_from(&header.value).ok();
-                found_headers |= 1;
-            } else if f.equiv("Content-Length") {
-                search_header.content_length = header.value.as_str().parse().ok();
-                found_headers |= 2;
-            } else if f.equiv("Expect") {
-                // true if the client sent a `Expect: 100-continue` header
-                if header.value.as_str().eq_ignore_ascii_case("100-continue") {
-                    search_header.expect_continue = true;
-                } else {
-                    return Err(CreateError::Expect);
-                }
-                found_headers |= 4;
-            } else if f.equiv("Transfer-Encoding") {
-                search_header.transfer_encoding = Some(header.value.as_bytes());
-                found_headers |= 8;
-            }
-
-            #[cfg(feature = "content-type")]
-            {
-                if f.equiv("Content-Type") {
-                    search_header.content_type = crate::ContentType::try_from(header).ok();
-                    found_headers |= 16;
-                }
-
-                // bit field match
-                if found_headers == 31 {
-                    break;
-                }
-            }
-
-            // bit field match
-            #[cfg(not(feature = "content-type"))]
-            if found_headers == 15 {
-                break;
-            }
-        }
-
-        Ok(search_header)
     }
 }
 
