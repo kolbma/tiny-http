@@ -1,8 +1,8 @@
 pub use connection_header::{ConnectionHeader, ConnectionValue};
 #[cfg(feature = "content-type")]
 pub use content_type::ContentType;
-pub(crate) use header::HeaderData;
 pub use header::{Header, HeaderError, HeaderField, HeaderFieldValue};
+pub(crate) use header_data::HeaderData;
 pub use http_version::{HttpVersion, HttpVersionError};
 pub use limits::Config as LimitsConfig;
 pub use method::Method;
@@ -12,6 +12,7 @@ pub mod connection_header;
 #[cfg(feature = "content-type")]
 mod content_type;
 mod header;
+mod header_data;
 mod http_version;
 pub mod limits;
 mod method;

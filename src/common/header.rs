@@ -1,6 +1,4 @@
 use std::{
-    cell::{Cell, RefCell},
-    collections::{hash_map::DefaultHasher, HashMap},
     convert::TryFrom,
     hash::{Hash, Hasher},
     str::FromStr,
@@ -132,208 +130,6 @@ impl TryFrom<&AsciiStr> for Header {
 
     fn try_from(input: &AsciiStr) -> Result<Self, Self::Error> {
         Self::try_from(input.as_bytes())
-    }
-}
-
-/// Container for [`Header`] data for cached keyed lookup of fields
-#[derive(Debug)]
-pub(crate) struct HeaderData {
-    field_ignore: RefCell<Vec<usize>>,
-    field_map: RefCell<HashMap<u64, Option<Vec<usize>>>>,
-    headers: Vec<Header>,
-    is_field_sort: Cell<bool>,
-}
-
-/// Creates hash for `field`
-macro_rules! field_hash {
-    ($field:expr) => {{
-        let mut hasher = DefaultHasher::new();
-        for b in $field {
-            let mut b = *b;
-            #[allow(clippy::manual_range_contains)]
-            {
-                if b >= 65 && b <= 90 {
-                    b += 32;
-                }
-            }
-            b.hash(&mut hasher);
-        }
-        hasher.finish()
-    }};
-}
-
-impl HeaderData {
-    /// Move the `Vec<Header>` in to create [`HeaderData`]
-    #[must_use]
-    pub(crate) fn new(headers: Vec<Header>) -> Self {
-        Self {
-            field_ignore: RefCell::new(Vec::new()),
-            field_map: RefCell::new(HashMap::new()),
-            headers,
-            is_field_sort: Cell::new(true),
-        }
-    }
-
-    /// Prepares cache for multiple fields for faster retrieve
-    pub(crate) fn cache_header<B>(&self, fields: &[B])
-    where
-        B: AsRef<[u8]> + Into<Vec<u8>>,
-    {
-        let mut field_ignore = self.field_ignore.borrow_mut();
-        if field_ignore.len() >= self.headers.len() {
-            return;
-        }
-
-        let mut indices = HashMap::new();
-
-        if !self.is_field_sort.get() {
-            field_ignore.sort_unstable();
-            self.is_field_sort.set(true);
-        }
-
-        let mut field_hash = Vec::new();
-        for field in fields {
-            let field = field_hash!(field.as_ref());
-            field_hash.push(field);
-            let _ = indices.insert(field, Vec::new());
-        }
-        field_hash.sort_unstable();
-
-        for (idx, header) in self.headers.iter().enumerate() {
-            if field_ignore.binary_search(&idx).is_ok() {
-                continue;
-            }
-
-            let header_field = field_hash!(header.field.as_bytes());
-            if field_hash.binary_search(&header_field).is_ok() {
-                self.is_field_sort.set(false);
-                field_ignore.push(idx);
-                indices.get_mut(&header_field).unwrap().push(idx);
-            }
-        }
-
-        let mut field_map = self.field_map.borrow_mut();
-
-        for (field, indices) in indices {
-            if !indices.is_empty() {
-                let _ = field_map.insert(field, Some(indices));
-            }
-        }
-    }
-
-    /// Get up to `limit` headers provided with `field`
-    ///
-    /// A [`Request`](crate::Request) can be made with multiple lines of the same
-    /// header field.  
-    /// This is equivalent to providing a comma separated list in one
-    /// header field.
-    ///
-    /// Up to `limit` lines with `field` are returned. It can be less if the header
-    /// has lesser.
-    ///
-    /// If there is no such header `field` available in `Request` `None` is returned.
-    ///
-    pub(crate) fn header<B>(&self, field: &B, limit: Option<usize>) -> Option<Vec<&Header>>
-    where
-        B: AsRef<[u8]> + Into<Vec<u8>>,
-    {
-        let field = field_hash!(field.as_ref());
-
-        let field_map = self.field_map.borrow();
-        if let Some(indeces) = field_map.get(&field) {
-            if let Some(indeces) = indeces {
-                let mut v = Vec::new();
-                let limit = limit.unwrap_or(indeces.len());
-                for idx in indeces.iter().take(limit) {
-                    v.push(&self.headers[*idx]);
-                }
-                return Some(v);
-            }
-
-            return None;
-        }
-
-        let mut field_ignore = self.field_ignore.borrow_mut();
-        if field_ignore.len() >= self.headers.len() {
-            return None;
-        }
-
-        drop(field_map);
-
-        let mut indices = Vec::new();
-        let mut v = Vec::new();
-
-        if !self.is_field_sort.get() {
-            field_ignore.sort_unstable();
-            self.is_field_sort.set(true);
-        }
-
-        let limit = limit.unwrap_or(usize::MAX);
-
-        for (idx, header) in self.headers.iter().enumerate() {
-            if field_ignore.binary_search(&idx).is_ok() {
-                continue;
-            }
-            let header_field = field_hash!(header.field.as_bytes());
-            if header_field == field {
-                self.is_field_sort.set(false);
-                field_ignore.push(idx);
-                indices.push(idx);
-                if v.len() < limit {
-                    v.push(header);
-                }
-            }
-        }
-
-        let mut field_map = self.field_map.borrow_mut();
-
-        if indices.is_empty() {
-            let _ = field_map.insert(field, None);
-            return None;
-        }
-
-        let _ = field_map.insert(field, Some(indices));
-        Some(v)
-    }
-
-    /// Get the first header provided with `field`
-    ///
-    /// A [`Request`](crate::Request) can be made with multiple lines of the same header field.  
-    /// This is equivalent to providing a comma separated list in one
-    /// header field.
-    ///
-    /// If there is no such header `field` available in `Request` `None` is returned.
-    ///
-    #[inline]
-    pub(crate) fn header_first<B>(&self, field: &B) -> Option<&Header>
-    where
-        B: AsRef<[u8]> + Into<Vec<u8>>,
-    {
-        self.header(field, Some(1)).map(|h| h[0])
-    }
-
-    /// Get the last header provided with `field`
-    ///
-    /// See also [`Self::header_first`].
-    ///
-    /// A [`Request`] can be made with multiple lines of the same header field.  
-    /// This is equivalent to providing a comma separated list in one
-    /// header field.
-    ///
-    /// If there is no such header `field` available in `Request` `None` is returned.
-    ///
-    #[inline]
-    pub(crate) fn header_last<B>(&self, field: &B) -> Option<&Header>
-    where
-        B: AsRef<[u8]> + Into<Vec<u8>>,
-    {
-        self.header(field, None).and_then(|h| h.last().copied())
-    }
-
-    /// Returns the list of [`Header`] sent by client in [`Request`](crate::Request)
-    #[inline]
-    pub(crate) fn headers(&self) -> &[Header] {
-        &self.headers
     }
 }
 
@@ -643,14 +439,14 @@ impl std::fmt::Display for HeaderError {
 mod test {
     use std::{
         convert::TryFrom,
-        time::{Duration, Instant, SystemTime},
+        time::{Duration, SystemTime},
     };
 
     use ascii::{AsAsciiStr, AsciiStr, AsciiString};
     use httpdate::HttpDate;
 
     use super::{
-        field_byte_range_check, field_value_byte_range_check, Header, HeaderData, HeaderField,
+        field_byte_range_check, field_value_byte_range_check, Header, HeaderField,
         HeaderFieldValue, HEADER_FORBIDDEN,
     };
 
@@ -858,55 +654,5 @@ mod test {
                 header.unwrap_err()
             );
         }
-    }
-
-    #[test]
-    fn header_data_test() {
-        let headers = vec![
-            Header::from_bytes(b"Host", b"localhost").unwrap(),
-            Header::from_bytes(b"Content-Length", b"69").unwrap(),
-            Header::from_bytes(b"Content-Type", b"text/html").unwrap(),
-            Header::from_bytes(b"X-Data", b"1").unwrap(),
-            Header::from_bytes(b"x-data", b"2").unwrap(),
-            Header::from_bytes(b"X-Data", b"3").unwrap(),
-        ];
-
-        let data = HeaderData::new(headers);
-
-        assert_eq!(data.headers().len(), 6);
-
-        let now = Instant::now();
-        let r1 = data.header(b"X-Data", Some(2));
-        let elaps1 = now.elapsed();
-
-        let now = Instant::now();
-        let r2 = data.header(b"X-Data", Some(2));
-        let elaps2 = now.elapsed();
-
-        assert!(
-            elaps1 > elaps2,
-            "elaps1: {} elaps2: {}",
-            elaps1.as_nanos(),
-            elaps2.as_nanos()
-        );
-        assert_eq!(r1, r2);
-
-        let r3 = data.header(b"content-type", None);
-        let r3 = r3.unwrap();
-        assert_eq!(r3.len(), 1);
-        assert_eq!(r3[0].field.as_bytes(), b"Content-Type");
-
-        let now = Instant::now();
-        let r4 = data.header(b"X-Data", None);
-        let elaps4 = now.elapsed();
-
-        assert_eq!(r4.unwrap().len(), 3);
-
-        assert!(
-            elaps1 > elaps4,
-            "elaps1: {} elaps4: {}",
-            elaps1.as_nanos(),
-            elaps4.as_nanos()
-        );
     }
 }
