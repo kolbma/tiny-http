@@ -12,6 +12,8 @@ pub(crate) struct HeaderData {
     field_hash: RefCell<Vec<u64>>,
     /// Counts 0 when all headers are cached
     field_ignore_cnt: Cell<usize>,
+    /// Contains the hash of fields not found in headers
+    field_ignore_hash: RefCell<Vec<u64>>,
     /// Contains same unstable sorted field hashes in .0 and the header index belonging to the field
     #[allow(clippy::type_complexity)]
     field_map: RefCell<(Vec<u64>, Vec<Vec<usize>>)>,
@@ -43,6 +45,7 @@ impl HeaderData {
         Self {
             field_hash: RefCell::new(vec![0; headers.len()]),
             field_ignore_cnt: Cell::new(headers.len()),
+            field_ignore_hash: RefCell::new(Vec::new()),
             field_map: RefCell::new((Vec::new(), Vec::new())),
             headers,
         }
@@ -60,7 +63,23 @@ impl HeaderData {
         let mut cache_hash = Vec::new();
         for field in fields {
             let field = field_hash!(field.as_ref());
+
+            let field_ignore_pos = self.field_ignore_hash.borrow().binary_search(&field);
+
+            if field_ignore_pos.is_ok() {
+                continue;
+            }
+
+            let field_ignore_pos = field_ignore_pos.unwrap_err();
+            self.field_ignore_hash
+                .borrow_mut()
+                .insert(field_ignore_pos, field);
+
             cache_hash.push(field);
+        }
+
+        if cache_hash.is_empty() {
+            return;
         }
         cache_hash.sort_unstable();
 
@@ -125,7 +144,9 @@ impl HeaderData {
 
             drop(field_map);
 
-            self.cache_header_field(field);
+            if !self.cache_header_field(field) {
+                break;
+            }
         }
 
         None
@@ -172,9 +193,21 @@ impl HeaderData {
     }
 
     #[inline]
-    fn cache_header_field(&self, field: u64) {
+    fn cache_header_field(&self, field: u64) -> bool {
+        let field_ignore_pos = self.field_ignore_hash.borrow().binary_search(&field);
+
+        if field_ignore_pos.is_ok() {
+            return false;
+        }
+
+        let field_ignore_pos = field_ignore_pos.unwrap_err();
+        self.field_ignore_hash
+            .borrow_mut()
+            .insert(field_ignore_pos, field);
+
         let mut field_hash = self.field_hash.borrow_mut();
         let mut field_map = self.field_map.borrow_mut();
+        let mut is_cached = false;
 
         for (idx, header) in self.headers.iter().enumerate() {
             if field_hash[idx] != 0 {
@@ -195,8 +228,11 @@ impl HeaderData {
                 }
                 field_hash[idx] = header_field;
                 self.field_ignore_cnt.set(self.field_ignore_cnt.get() - 1);
+                is_cached = true;
             }
         }
+
+        is_cached
     }
 }
 
@@ -224,7 +260,8 @@ mod tests {
         assert_eq!(data.headers().len(), 6);
 
         let field = field_hash!(b"Content-Length");
-        data.cache_header_field(field);
+        assert!(data.cache_header_field(field));
+        assert!(!data.cache_header_field(field));
 
         assert_eq!(data.field_ignore_cnt.get(), 5);
         assert_eq!(data.field_hash.borrow()[1], field);
@@ -250,7 +287,7 @@ mod tests {
         assert_eq!(data.headers().len(), 6);
 
         let field = field_hash!(b"X-Data");
-        data.cache_header_field(field);
+        assert!(data.cache_header_field(field));
 
         assert_eq!(data.field_ignore_cnt.get(), 3);
         assert_eq!(data.field_hash.borrow()[3], field);
@@ -266,8 +303,11 @@ mod tests {
         assert_ne!(data.field_hash.borrow()[2], 0);
         assert_eq!(data.field_map.borrow().0.len(), 2);
 
+        let field = field_hash!(b"Not-Exist");
+        assert!(!data.cache_header_field(field));
         assert_eq!(data.header_first(b"Not-Exist"), None);
         assert_eq!(data.field_ignore_cnt.get(), 2);
+        assert!(!data.cache_header_field(field));
 
         assert!(data.header_first(b"Host").is_some());
         assert_eq!(data.field_ignore_cnt.get(), 1);
