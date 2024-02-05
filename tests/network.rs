@@ -478,7 +478,7 @@ fn supported_http_versions_test() {
     client = check_client_close(client, &content);
     assert_contains(200, "1.1", &mut content);
 
-    for v in ["2.0", "3.0", "2.9", "4.0"] {
+    for v in ["2", "2.0", "3", "3.0", "2.9", "4.0"] {
         write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n").unwrap();
         let _ = client.flush();
 
