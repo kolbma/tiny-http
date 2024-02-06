@@ -12,7 +12,6 @@ use super::Registration;
 /// Any idle thread will automatically die after a few seconds.
 pub(crate) struct TaskPool {
     sharing: Arc<Sharing>,
-    // thread_handles:
 }
 
 pub(crate) type TaskFn = Box<dyn FnMut() + Send>;
@@ -205,15 +204,16 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
 
-        tp.spawn_task(Box::new(|| thread::sleep(Duration::from_millis(10))));
+        tp.spawn_task(Box::new(|| thread::sleep(Duration::from_millis(20))));
 
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(10));
 
-        while tp.sharing.threads_idle.load(Ordering::Relaxed) == MIN_THREADS {
-            thread::sleep(Duration::from_millis(5));
-        }
+        assert_eq!(
+            tp.sharing.threads_idle.load(Ordering::Relaxed),
+            MIN_THREADS - 1
+        );
 
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(11));
 
         assert_eq!(
             tp.sharing.threads_total.load(Ordering::Relaxed),
