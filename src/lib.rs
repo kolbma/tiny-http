@@ -159,11 +159,11 @@ pub struct Server {
     num_connections: Arc<AtomicU16>,
 }
 
-// this trait is to make sure that Server implements Share and Send
+// this trait is to make sure that Server implements Send and Sync
 #[doc(hidden)]
-trait SyncSendT: Sync + Send {}
+trait SendSyncT: Send + Sync {}
 #[doc(hidden)]
-impl SyncSendT for Server {}
+impl SendSyncT for Server {}
 
 /// Iterator over received `[Request]` from `[Server]`
 ///
