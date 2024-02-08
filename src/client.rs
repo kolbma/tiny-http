@@ -132,9 +132,10 @@ impl ClientConnection {
     /// The limit per header line is 2K.
     fn read_next_line(&mut self, buf: &mut Vec<u8>) -> Result<(), ReadError> {
         let mut bytes = [0u8; limits::HEADER_READER_BUF_SIZE];
+        let mut cr_pos = 0;
         let mut limit = 0;
         let mut space_only = true;
-        let mut w = 0_usize;
+        let mut w = 0;
 
         buf.clear();
         let reader = self.next_header_source.by_ref();
@@ -159,11 +160,10 @@ impl ClientConnection {
 
             #[allow(clippy::manual_range_contains)]
             if b == NL {
-                if w > 0 && bytes[w - 1] == CR {
-                    let n = w - 1;
-                    limit += n;
+                if w > 0 && cr_pos == w - 1 {
+                    limit += cr_pos;
                     check_line_limit!(self, limit, self.limits.header_line_len);
-                    buf.extend_from_slice(&bytes[0..n]);
+                    buf.extend_from_slice(&bytes[0..cr_pos]);
                 } else {
                     if w == 0 {
                         // got <NL> in a fresh bytes buffer
@@ -176,7 +176,13 @@ impl ClientConnection {
                 }
 
                 break;
-            } else if (b != CR && b < 32 && b != 9) || b == 127 {
+            } else if b == CR && cr_pos == 0 {
+                // a Crazy Iwan <CR>  with pos > 0 will violate in next else if check
+                if w == 0 {
+                    space_only = false;
+                }
+                cr_pos = w;
+            } else if (b < 32 && b != 9) || b == 127 || cr_pos > 0 {
                 // abort early when byte range of client violates spec
                 return Err(ReadError::RfcViolation);
             } else if space_only && b != 32 && b != 9 {
