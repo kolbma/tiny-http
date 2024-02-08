@@ -333,6 +333,35 @@ fn unsupported_expect_header() {
 }
 
 #[test]
+fn invalid_header_line() {
+    let mut client = support::new_client_to_hello_world_server();
+
+    // Crazy Iwan <CR> with 2nd <CR><LF>
+    write!(
+        client,
+        "GET / HTTP/1.1\rGET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content).unwrap();
+    assert!(content[9..].starts_with("400 Bad Request")); // 400 status code
+
+    let mut client = support::new_client_to_hello_world_server();
+
+    // Crazy Iwan <CR> with 2nd only <LF>
+    write!(
+        client,
+        "GET / HTTP/1.1\rGET / HTTP/1.1\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content).unwrap();
+    assert!(content[9..].starts_with("400 Bad Request")); // 400 status code
+}
+
+#[test]
 fn invalid_header_name() {
     let mut client = support::new_client_to_hello_world_server();
 
