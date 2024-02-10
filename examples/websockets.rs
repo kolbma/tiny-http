@@ -240,7 +240,7 @@ macro_rules! is_some_and_eq {
 #[allow(clippy::too_many_lines)]
 fn main() {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     println!("Now listening on http://localhost:{port}/");
 
     for request in server.incoming_requests() {

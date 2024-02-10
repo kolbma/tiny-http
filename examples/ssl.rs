@@ -27,12 +27,15 @@ fn main() {
     .unwrap();
 
     println!(
-        "Note: connecting to this server will likely give you a warning from your browser \
-              because the connection is unsecure. This is because the certificate used by this \
-              example is self-signed. With a real certificate, you wouldn't get this warning."
+        "\r\n\x1b[38;5;226mNote:\x1b[0m\r\n\
+        Connecting to this server will likely give you a warning from your browser \
+        because the connection is unsecure.\r\n\
+        This is because the certificate used by this example is self-signed.\r\n\
+        With a real certificate, you wouldn't get this warning.\r\n\
+        "
     );
 
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     println!("Now listening on https://localhost:{port}/");
 
     for request in server.incoming_requests() {

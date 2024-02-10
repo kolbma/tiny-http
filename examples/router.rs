@@ -45,7 +45,7 @@ fn main() {
         ("POST:/echo", RouteHandler::from(post_echo)),
     ]);
     let server = Server::http("0.0.0.0:9975").unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     println!("Now listening on http://localhost:{port}/");
 
     for mut request in server.incoming_requests() {
