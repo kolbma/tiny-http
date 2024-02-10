@@ -66,11 +66,8 @@ features = ["ssl-openssl"]
 missing_debug_implementations = "warn"
 missing_docs = "warn"
 non_ascii_idents = "warn"
-rust_2018_idioms = "warn"
-rust_2021_incompatible_closure_captures = "warn"
-rust_2021_incompatible_or_patterns = "warn"
-rust_2021_prefixes_incompatible_syntax = "warn"
-rust_2021_prelude_collisions = "warn"
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust-2021-compatibility = "warn"
 single_use_lifetimes = "warn"
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
@@ -85,5 +82,5 @@ unused_qualifications = "warn"
 unused_results = "warn"
 
 [lints.clippy]
-pedantic = "warn"
+pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
