@@ -149,7 +149,7 @@ pub(crate) struct RefinedTcpStream {
 }
 
 impl RefinedTcpStream {
-    /// Create `[RefinedTcpStream]`
+    /// Create [`RefinedTcpStream`]
     ///
     /// # Returns
     /// - tuple (closable Read, closable Write)

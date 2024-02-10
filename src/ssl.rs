@@ -43,7 +43,7 @@ pub struct SslConfig {
 }
 
 impl SslConfig {
-    /// Create `[SslConfig]`
+    /// Create [`SslConfig`]
     ///
     #[must_use]
     pub fn new(certificate: Vec<u8>, private_key: Vec<u8>) -> Self {

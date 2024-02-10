@@ -1,11 +1,13 @@
 use std::net::TcpStream;
 
-/// Config for TCP socket with enabled _socket2_ feature
+/// Config for TCP socket
+///
+/// With enabled _socket2_ feature exists the possibility to configure more settings.
 ///
 /// # Defaults
 ///
 /// `keep_alive`: true  
-/// `linger`: None
+/// `linger`: None  
 /// `no_delay`: true  
 /// `read_timeout`: 10s  
 /// `tcp_keepalive_interval`: None  
