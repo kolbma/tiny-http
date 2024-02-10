@@ -15,7 +15,7 @@ fn unix_basic_handling() {
     let server = tiny_http::Server::http_unix(Path::new("/tmp/tiny-http-test.sock")).unwrap();
     let path: PathBuf = server
         .server_addr()
-        .to_unix()
+        .unix_socket_addrs()
         .unwrap()
         .as_pathname()
         .unwrap()

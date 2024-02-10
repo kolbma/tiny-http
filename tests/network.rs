@@ -248,8 +248,9 @@ fn pipelining_test() {
 #[test]
 fn server_crash_results_in_response() {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
-    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let ip = server.server_addr().ip().unwrap();
+    let port = server.server_addr().port().unwrap();
+    let mut client = TcpStream::connect((ip, port)).unwrap();
 
     let _ = thread::spawn(move || {
         let _ = server.recv().unwrap();
@@ -345,8 +346,8 @@ fn server_connection_limit_test() {
         })
         .unwrap(),
     );
-    let port = server.server_addr().to_ip().unwrap().port();
-    let ip = server.server_addr().to_ip().unwrap().ip();
+    let port = server.server_addr().port().unwrap();
+    let ip = server.server_addr().ip().unwrap();
     let mut clients = Vec::new();
 
     let inner_server = Arc::clone(&server);
@@ -354,7 +355,7 @@ fn server_connection_limit_test() {
     let _ = thread::spawn(move || while let Some(_rq) = inner_server.incoming_requests().next() {});
 
     for n in 1..=10 {
-        let stream = TcpStream::connect(("127.0.0.1", port));
+        let stream = TcpStream::connect((ip, port));
         assert!(
             stream.is_ok(),
             "stream error: {:?}: {}:{}",
@@ -371,7 +372,7 @@ fn server_connection_limit_test() {
     }
 
     for _ in 0..100 {
-        let stream = TcpStream::connect(("127.0.0.1", port));
+        let stream = TcpStream::connect((ip, port));
         assert!(
             stream.is_ok(),
             "stream error: {:?}: {}:{}",
