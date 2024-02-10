@@ -130,7 +130,7 @@ impl Request {
         self.content_length
     }
 
-    /// The `[ConnectionHeader]` of `[Request]`
+    /// The [`ConnectionHeader`] of [`Request`]
     #[must_use]
     pub fn connection_header(&self) -> Option<&ConnectionHeader> {
         self.connection_header.as_ref()
@@ -145,7 +145,7 @@ impl Request {
         self.content_length
     }
 
-    /// One of the supported `[ContentType](crate::ContentType)` of `[Request]`
+    /// One of the supported [`ContentType`](crate::ContentType) of [`Request`]
     #[cfg(feature = "content-type")]
     #[must_use]
     pub fn content_type(&self) -> Option<crate::ContentType> {
@@ -225,7 +225,7 @@ impl Request {
     /// This function is useful for things like CGI.
     ///
     /// Note that the destruction of the `Writer` object may trigger
-    /// some events. For exemple if a client has sent multiple requests and the requests
+    /// some events. For example if a client has sent multiple requests and the requests
     /// have been processed in parallel, the destruction of a writer will trigger
     /// the writing of the next response.
     /// Therefore you should always destroy the `Writer` as soon as possible.
@@ -265,7 +265,7 @@ impl Request {
         self.remote_addr.as_ref()
     }
 
-    /// Returns the address of the client that sent this request as `[String]`.
+    /// Returns the address of the client that sent this request as [`String`].
     ///
     /// The address is always `Some` for TCP listeners, but always `None` for UNIX listeners
     /// (as the remote address of a UNIX client is almost always unnamed).
@@ -386,6 +386,10 @@ impl Request {
     }
 
     /// Returns the resource requested by the client.
+    ///
+    /// Have a look at [RFC 9112 3.2 Request Target](https://datatracker.ietf.org/doc/html/rfc9112#name-request-target)
+    /// and especially [3.3](https://datatracker.ietf.org/doc/html/rfc9112#name-reconstructing-the-target-u) on
+    /// how to reconstruct from this the target uri.
     #[must_use]
     #[inline]
     pub fn url(&self) -> &str {
@@ -538,7 +542,7 @@ impl Request {
         })
     }
 
-    /// Set `[ConnectionHeader]` of `[Request]`
+    /// Set [`ConnectionHeader`] of [`Request`]
     pub(crate) fn set_connection_header(&mut self, connection_header: Option<ConnectionValue>) {
         self.connection_header = connection_header.map(ConnectionHeader::from);
     }

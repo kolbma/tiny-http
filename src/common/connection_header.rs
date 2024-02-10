@@ -1,7 +1,4 @@
-//! The Connection general header controls whether the network connection stays open after
-//! the current transaction finishes.  
-//! If the value sent is keep-alive, the connection is persistent and not closed,
-//! allowing for subsequent requests to the same server to be done.
+//! The Http Connection header
 
 use ascii::{AsciiStr, AsciiString};
 use lazy_static::lazy_static;
@@ -10,7 +7,11 @@ use std::fmt::{self, Formatter};
 
 use super::header::HeaderFieldValue;
 
-/// Http protocol Connection header line content
+/// Http protocol Connection header controls whether the network connection stays open
+/// after the current transaction finishes.
+///
+/// If the value sent is keep-alive, the connection is persistent and not closed,
+/// allowing for subsequent requests to the same server to be done.
 #[derive(Debug)]
 pub struct ConnectionHeader {
     inner: u8,

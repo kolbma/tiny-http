@@ -145,7 +145,9 @@ impl ClientConnection {
 
             match byte_result {
                 Ok(0) => {
-                    space_only = false;
+                    if space_only && w == 0 {
+                        space_only = false;
+                    }
                     break;
                 }
                 Err(err) => {
@@ -401,7 +403,7 @@ impl Iterator for ClientConnection {
 
         let mut rq = rq;
 
-        // handle Connection header - see also `[Request::respond]`
+        // handle Connection header - see also [`request::Request::respond`]
         if let Some(connection_headers) = connection_header {
             let connection_header = connection_headers.iter().next();
             match connection_header {
@@ -638,6 +640,7 @@ mod test {
         assert!(super::parse_request_line(&b"GET   /hello HTTP/1.1"[..]).is_err());
         assert!(super::parse_request_line(&b"GET /hello   HTTP/1.1"[..]).is_err());
 
+        assert!(super::parse_request_line(&b"GET /favicon.ico HTTP/1.1"[..]).is_ok());
         assert!(super::parse_request_line(&b"GET /hello?q=1 HTTP/1.1"[..]).is_ok());
         assert!(super::parse_request_line(&b"GET /hello?q=1#local HTTP/1.1"[..]).is_err());
         assert!(

@@ -63,38 +63,10 @@ jobs:
           cargo --version
           rustc --version
 
-  clippy_1_60:
-    name: Clippy Lint 1.60
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust-1-60:
-          - '1.60'
-        no-default-features-1-60:
-          - --no-default-features
-        features-1-60:
-          - ''
-          - --features log
-          - --features ssl-openssl
-          - --features ssl-native-tls
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust-1-60 }}
-          components: clippy
-
-      - name: Clippy 1.60
-        run: |
-          cargo clippy ${{ matrix.no-default-features-1-60 }} ${{ matrix.features-1-60 }} -- -Aunknown_lints
-          cargo --version
-          rustc --version
-
   rustfmt:
     name: Rust Cargo fmt
     runs-on: ubuntu-latest
-    needs: [clippy_1_63, clippy_1_61, clippy_1_60]
+    needs: [clippy_1_63, clippy_1_61]
     strategy:
       matrix:
         no-default-features:
@@ -129,7 +101,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.60'
+          - '1.61'
         features:
           - ''
           - ssl-native-tls
@@ -161,7 +133,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.60'
+          - '1.61'
         features:
           - ''
           - log
@@ -257,7 +229,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.60'
+          - '1.61'
         features:
           - ''
           - log

@@ -58,7 +58,7 @@ mod prompt_pipelining {
         }; // very slow response body
 
         let server = Server::http("0.0.0.0:0").unwrap();
-        let mut client = TcpStream::connect(server.server_addr().to_ip().unwrap()).unwrap();
+        let mut client = TcpStream::connect(server.server_addr().socket_addrs().unwrap()).unwrap();
         let (svr_send, svr_rcv) = channel();
 
         let _ = spawn(move || {
@@ -144,7 +144,7 @@ mod prompt_responses {
         req_writer: impl FnOnce(&mut dyn Write) + Send + 'static,
     ) {
         let server = Server::http("0.0.0.0:0").unwrap();
-        let client = TcpStream::connect(server.server_addr().to_ip().unwrap()).unwrap();
+        let client = TcpStream::connect(server.server_addr().socket_addrs().unwrap()).unwrap();
 
         let _ = spawn(move || loop {
             // server attempts to respond immediately

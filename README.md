@@ -36,7 +36,7 @@ tiny_http = "0.12"
 
 #### Minimum Supported Rust Version
 
-At least version __1.60__.  
+At least version __1.61__.  
 But feature __ssl-rustls__ needs __1.61__ and feature __socket2__ needs __1.63__.  
 Feature __content-type__ requires __1.70__.
 

@@ -1,6 +1,8 @@
 #![allow(missing_docs, unused_crate_dependencies)]
 
 #[cfg(feature = "socket2")]
+use std::sync::Arc;
+#[cfg(feature = "socket2")]
 use std::time::Duration;
 
 #[cfg(feature = "socket2")]
@@ -10,16 +12,16 @@ use tiny_http::{Response, Server, ServerConfig};
 fn main() -> Result<(), std::io::Error> {
     let server = Server::new(&ServerConfig {
         addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:9975")?,
-        socket_config: tiny_http::SocketConfig {
+        socket_config: Arc::new(tiny_http::SocketConfig {
             read_timeout: Duration::from_millis(5000),
             write_timeout: Duration::from_millis(5000),
             ..tiny_http::SocketConfig::default()
-        },
+        }),
         ..ServerConfig::default()
     })
     .unwrap();
 
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     println!("Now listening on http://localhost:{port}/");
 
     for request in server.incoming_requests() {

@@ -1,7 +1,7 @@
 # Changes
 
 ## Unreleased
-* MSRV is 1.60 for --default-features --features log and/or (ssl-native-tls or ssl)
+* MSRV is 1.61 for --default-features --features log and/or (ssl-native-tls or ssl)
   - For successful build of feature ssl-rustls Rust version >=1.61 is required
   - For successful build of feature socket2 Rust version >=1.63 is required
   - Feature content-type requires Rust >=1.70
@@ -41,6 +41,8 @@
 
 * BREAKING CHANGE: `ServerConfig` got a field limits `LimitsConfig` to configure these limits.
 
+* BREAKING CHANGE: `ServerConfig` got fields exit_graceful_timeout, exit_wait_timeout.
+
 * New feature _native-tls_
 
   _native-tls_ is a crate that will pick the platforms native TLS implementation depending on the chosen build target.
@@ -53,7 +55,11 @@
 
 * HeaderField/Value provides many converters and PartialEq for easy compare
 
+* A Server implementation providing handling of multiple worker threads with graceful exit handling and `RequestHandler`
+
 * Update rustls to v0.22, rustls-pemfile to v2.0
+
+* New exmaple _multi-threaded-server_ showing new feature of multi-thread-workers
 
 * New example _router_ how route and response handling could be implemented
 

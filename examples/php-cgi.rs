@@ -109,7 +109,7 @@ fn main() {
     });
 
     let server = Arc::new(tiny_http::Server::http("0.0.0.0:9975").unwrap());
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     println!("Now listening on http://localhost:{port}/");
 
     let num_cpus = 4; // TODO: dynamically generate this value

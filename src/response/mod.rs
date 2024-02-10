@@ -142,7 +142,7 @@ where
     ///
     /// # Errors
     ///
-    /// - `[HeaderError]` when header is not added
+    /// - [`HeaderError`] when header is not added
     ///
     pub fn add_header<H>(&mut self, header: H) -> Result<(), HeaderError>
     where
@@ -182,7 +182,7 @@ where
     ///
     /// # Errors
     ///
-    /// - `[HeaderError]` when header is not added
+    /// - [`HeaderError`] when header is not added
     ///
     #[inline]
     pub fn add_headers<H>(&mut self, headers: Vec<H>) -> Result<(), HeaderError>
@@ -202,7 +202,7 @@ where
     ///
     /// # Errors
     ///
-    /// - `[HeaderError]` when header is not added
+    /// - [`HeaderError`] when header is not added
     ///
     pub fn filter_header<H>(&mut self, header_field: H) -> Result<(), HeaderError>
     where
@@ -227,7 +227,7 @@ where
     ///
     /// # Errors
     ///
-    /// - `[HeaderError]` when header is not added
+    /// - [`HeaderError`] when header is not added
     ///
     #[inline]
     pub fn with_header<H>(mut self, header: H) -> Result<Self, HeaderError>
@@ -245,7 +245,7 @@ where
     ///
     /// # Errors
     ///
-    /// - `[HeaderError]` when header is not added
+    /// - [`HeaderError`] when header is not added
     ///
     #[inline]
     pub fn with_headers<H>(mut self, headers: Vec<H>) -> Result<Self, HeaderError>

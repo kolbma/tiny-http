@@ -40,7 +40,7 @@ impl Header {
         Ok(Header { field, value })
     }
 
-    /// `true` if `[Header]` `field` can be added and modified
+    /// `true` if [`Header`] `field` can be added and modified
     #[inline]
     pub(crate) fn is_modifieable(field: &HeaderField) -> bool {
         HEADER_FORBIDDEN.contains(&field.as_str().to_ascii_lowercase().as_str())

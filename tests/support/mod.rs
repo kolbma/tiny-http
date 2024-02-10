@@ -1,10 +1,10 @@
-use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
+use std::{net::TcpStream, sync::Arc};
 
 use tiny_http::SocketConfig;
 
-/// Creates a `[TcpStream]` Client for first `addr`
+/// Creates a [`TcpStream`] Client for first `addr`
 #[cfg(feature = "socket2")]
 pub(crate) fn create_client<A>(
     addr: A,
@@ -35,7 +35,7 @@ where
     socket.into()
 }
 
-/// Creates a `[TcpStream]` Client for first `addr`
+/// Creates a [`TcpStream`] Client for first `addr`
 ///
 /// `keep_alive_idle` is ignored here, because not supported
 #[cfg(not(feature = "socket2"))]
@@ -76,7 +76,7 @@ pub(crate) fn new_one_server_one_client_2(
     keep_alive_idle_sec: Option<u64>,
 ) -> (tiny_http::Server, TcpStream) {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     let client = create_client(
         ("127.0.0.1", port),
         timeout_ms.map(Duration::from_millis),
@@ -100,7 +100,7 @@ pub(crate) fn new_client_to_hello_world_server_2(
     keep_alive_idle_sec: Option<u64>,
 ) -> TcpStream {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     let client = create_client(
         ("127.0.0.1", port),
         timeout_ms.map(Duration::from_millis),
@@ -147,7 +147,7 @@ pub(crate) fn new_client_to_echo_server_2(
     keep_alive_idle_sec: Option<u64>,
 ) -> TcpStream {
     let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     let client = create_client(
         ("127.0.0.1", port),
         timeout_ms.map(Duration::from_millis),
@@ -212,11 +212,11 @@ pub(crate) fn new_server_client_with_cfg(
 
     let server = tiny_http::Server::new(&ServerConfig {
         addr: tiny_http::ConfigListenAddr::from_socket_addrs("0.0.0.0:0").unwrap(),
-        socket_config: socket_config.clone(),
+        socket_config: Arc::new(socket_config.clone()),
         ..ServerConfig::default()
     })
     .unwrap();
-    let port = server.server_addr().to_ip().unwrap().port();
+    let port = server.server_addr().port().unwrap();
     let client = create_client(
         ("127.0.0.1", port),
         Some(socket_config.write_timeout),
@@ -232,7 +232,7 @@ pub(crate) fn new_server_client_with_cfg(
     (server, client)
 }
 
-/// Creates a "hello world" server with `[SocketConfig]` with a client connected to the server.
+/// Creates a "hello world" server with [`SocketConfig`] with a client connected to the server.
 ///
 /// The server will automatically close after 3 seconds.
 pub(crate) fn new_client_to_hello_world_server_with_cfg(socket_config: &SocketConfig) -> TcpStream {
