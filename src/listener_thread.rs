@@ -569,6 +569,7 @@ impl Drop for ListenerThread {
 
 // this trait is to make sure that ListenerThread implements Send and Sync
 #[doc(hidden)]
+#[allow(dead_code)]
 trait SendSyncT: Send + Sync {}
 #[doc(hidden)]
 impl SendSyncT for ListenerThread {}
