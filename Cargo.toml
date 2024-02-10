@@ -12,7 +12,7 @@ repository = "https://github.com/tiny-http/tiny-http"
 keywords = ["http", "server", "web"]
 license = "MIT OR Apache-2.0"
 edition = "2018"
-rust-version = "1.60"
+rust-version = "1.61"
 
 # msrv:
 # content-type 1.70
@@ -22,8 +22,8 @@ rust-version = "1.60"
 # socket2 1.63 
 
 [package.metadata]
-# minimum supported rust version 1.60 - dependencies
-msrv = "1.60"
+# minimum supported rust version 1.61 - https://doc.rust-lang.org/std/thread/struct.JoinHandle.html#method.is_finished
+msrv = "1.61"
 
 [features]
 default = ["log"]

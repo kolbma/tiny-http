@@ -8,7 +8,7 @@ fail() {
 	exit 1
 }
 
-MSRV="1.60"
+MSRV="1.61"
 
 cargo fmt --check || fail "cargo fmt --check"
 

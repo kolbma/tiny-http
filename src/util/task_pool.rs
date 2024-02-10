@@ -34,7 +34,7 @@ struct Sharing {
 }
 
 /// Minimum number of active threads.
-const MIN_THREADS: usize = 4;
+pub(crate) const MIN_THREADS: usize = 4;
 
 /// Minimum number of idle threads.
 const MIN_IDLE_THREADS: usize = 1;
@@ -62,6 +62,7 @@ impl TaskPool {
     }
 
     /// Executes a function in a thread.
+    ///
     /// If no thread is available, spawns a new one.
     pub(crate) fn spawn_task(&self, code: TaskFn) {
         let mut queue = self.sharing.queue.lock().unwrap();
@@ -131,6 +132,12 @@ impl TaskPool {
                 task();
             }
         });
+    }
+
+    /// Number of total threads in pool
+    #[inline]
+    pub(crate) fn threads_total(&self) -> usize {
+        self.sharing.threads_total.load(Ordering::Relaxed)
     }
 }
 
