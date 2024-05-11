@@ -37,7 +37,7 @@ tiny_http = "0.12"
 #### Minimum Supported Rust Version
 
 At least version __1.61__.  
-But feature __ssl-rustls__ needs __1.61__ and feature __socket2__ needs __1.63__.  
+But feature __ssl__, __ssl-native-tls__, __ssl-rustls__ needs __1.63__ and feature __socket2__ needs __1.63__.  
 Feature __content-type__ requires __1.70__.
 
 
@@ -51,6 +51,7 @@ Feature __content-type__ requires __1.70__.
 #### Optional features
 
 - content-type: provides usual content type enum with type converters
+- http-0-9: supporting HTTP/0.9 simple requests
 - log: uses log trait to debug and error
 - socket2: provides configurable TCP socket
 
