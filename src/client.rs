@@ -483,10 +483,19 @@ fn send_error_std_response(
     client_connection: &mut ClientConnection,
     status: response::Standard,
     version: Option<HttpVersion>,
-    do_not_send_body: bool,
+    mut do_not_send_body: bool,
 ) {
     let version = if status == HttpVersionNotSupported505 {
-        HttpVersion::Version1_0
+        if let Some(version) = version {
+            do_not_send_body = false;
+            if version == HttpVersion::Version0_9 {
+                HttpVersion::Version0_9
+            } else {
+                HttpVersion::Version1_0
+            }
+        } else {
+            HttpVersion::Version1_0
+        }
     } else {
         version.unwrap_or(HttpVersion::Version1_0)
     };

@@ -34,7 +34,7 @@ fn http_0_9_not_supported_test() {
     let mut content = String::new();
     let _ = client.read_to_string(&mut content);
 
-    assert!(content.starts_with("HTTP/"), "content: {}", content);
+    assert!(!content.starts_with("HTTP/"), "content: {}", content);
     assert!(
         content.contains("HTTP Version Not Supported"),
         "content: {}",
@@ -48,7 +48,7 @@ fn http_0_9_not_supported_test() {
     let mut content = String::new();
     let _ = client.read_to_string(&mut content);
 
-    assert!(content.starts_with("HTTP/"), "content: {}", content);
+    assert!(!content.starts_with("HTTP/"), "content: {}", content);
     assert!(
         content.contains("HTTP Version Not Supported"),
         "content: {}",

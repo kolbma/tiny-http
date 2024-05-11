@@ -434,16 +434,9 @@ fn supported_http_versions_test() {
     client = check_client_close(client, &content);
 
     #[cfg(feature = "http-0-9")]
-    assert_eq!(&mut content, "hello world");
+    assert_eq!(content, "hello world");
     #[cfg(not(feature = "http-0-9"))]
-    {
-        assert!(
-            content.ends_with("HTTP Version Not Supported"),
-            "content: {}",
-            content
-        );
-        assert_contains(505, "1.0", &mut content);
-    }
+    assert_eq!(content, "HTTP Version Not Supported");
 
     for v in ["1.0", "1.1"] {
         write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n").unwrap();
