@@ -10,29 +10,31 @@ fail() {
 
 MSRV="1.61"
 SSL_MSRV="1.63"
+#OFFLINE=
+OFFLINE="--offline"
 
 cargo fmt --check || fail "cargo fmt --check"
 
-cargo +$MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features -- -Dwarnings -Aunknown-lints && \
-cargo +$MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features http-0-9 -- -Dwarnings -Aunknown-lints && \
-cargo +$MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features log -- -Dwarnings -Aunknown-lints && \
-cargo +$SSL_MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features log,ssl -- -Dwarnings -Aunknown-lints && \
-cargo +$SSL_MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features log,ssl-native-tls -- -Dwarnings -Aunknown-lints && \
-cargo +$SSL_MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features ssl -- -Dwarnings -Aunknown-lints && \
-cargo +$SSL_MSRV clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features ssl-native-tls -- -Dwarnings -Aunknown-lints || \
+cargo +$MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features -- -Dwarnings -Aunknown-lints && \
+cargo +$MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features http-0-9 -- -Dwarnings -Aunknown-lints && \
+cargo +$MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features log -- -Dwarnings -Aunknown-lints && \
+cargo +$SSL_MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features log,ssl -- -Dwarnings -Aunknown-lints && \
+cargo +$SSL_MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features log,ssl-native-tls -- -Dwarnings -Aunknown-lints && \
+cargo +$SSL_MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features ssl -- -Dwarnings -Aunknown-lints && \
+cargo +$SSL_MSRV clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features ssl-native-tls -- -Dwarnings -Aunknown-lints || \
 fail "cargo +$MSRV clippy"
 
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features http-0-9 -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features content-type -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features log -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features socket2 -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features ssl -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features ssl-native-tls -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --no-default-features --features ssl-rustls -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --features ssl -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --features ssl-native-tls -- -Dwarnings && \
-cargo clippy --offline --bins --examples --lib --tests --no-deps --features ssl-rustls -- -Dwarnings || \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features http-0-9 -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features content-type -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features log -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features socket2 -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features ssl -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features ssl-native-tls -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --no-default-features --features ssl-rustls -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --features ssl -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --features ssl-native-tls -- -Dwarnings && \
+cargo clippy $OFFLINE --bins --examples --lib --tests --no-deps --features ssl-rustls -- -Dwarnings || \
 fail "cargo clippy"
 
 cargo doc -F content-type,socket2,ssl || fail "cargo doc"

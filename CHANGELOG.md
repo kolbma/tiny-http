@@ -1,8 +1,8 @@
 # Changes
 
 ## Unreleased
-* MSRV is 1.61 for --default-features --features log and/or (ssl-native-tls or ssl)
-  - For successful build of feature ssl-rustls Rust version >=1.61 is required
+* MSRV is 1.61 for --default-features --features log
+  - For successful build of feature ssl, ssl-native-tls or ssl-rustls Rust version >=1.63 is required
   - For successful build of feature socket2 Rust version >=1.63 is required
   - Feature content-type requires Rust >=1.70
 
@@ -48,6 +48,8 @@
   _native-tls_ is a crate that will pick the platforms native TLS implementation depending on the chosen build target.
 
 * _log_ feature can disable log support
+
+* _http-0-9_ feature for disabling correct simple HTTP/0.9
 
 * Strict checks of HTTP request line and headers for invalid, not RFC conform byte values
 
