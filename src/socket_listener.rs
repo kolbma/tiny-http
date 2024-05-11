@@ -15,9 +15,9 @@ use super::SocketConfig;
 /// Unified listener. Either a [`TcpListener`] or [`std::os::unix::net::UnixListener`]
 #[allow(missing_debug_implementations)]
 pub enum Listener {
-    /// [TcpListener] socket with [SocketConfig]
+    /// [`TcpListener`] socket with [`SocketConfig`]
     Tcp(TcpListener, Arc<SocketConfig>),
-    /// [unix_net::UnixListener] socket
+    /// [`unix_net::UnixListener`] socket
     #[cfg(unix)]
     Unix(unix_net::UnixListener),
 }
@@ -65,9 +65,9 @@ impl From<unix_net::UnixListener> for Listener {
 /// Unified listen socket address. Either a `Vec` of [`SocketAddr`] or [`std::os::unix::net::SocketAddr`].
 #[derive(Debug, Clone)]
 pub enum ConfigListenAddr {
-    /// [SocketAddr] for IP net
+    /// [`SocketAddr`] for IP net
     IP(Vec<SocketAddr>),
-    /// [PathBuf] for `Unix`socket
+    /// [`PathBuf`] for `Unix`socket
     #[cfg(unix)]
     // TODO: use SocketAddr when bind_addr is stabilized (since 1.70)
     Unix(PathBuf),
@@ -168,9 +168,9 @@ impl ConfigListenAddr {
 /// Unified listen socket address. Either a [`SocketAddr`] or [`std::os::unix::net::SocketAddr`].
 #[derive(Debug, Clone)]
 pub enum ListenAddr {
-    /// [SocketAddr] for IP net
+    /// [`SocketAddr`] for IP net
     IP(SocketAddr),
-    /// Unix [unix_net::SocketAddr]
+    /// Unix [`unix_net::SocketAddr`]
     #[cfg(unix)]
     Unix(unix_net::SocketAddr),
 }

@@ -2,7 +2,10 @@ use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Read};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
+
+use ascii::AsciiString;
 
 use crate::common::{HttpVersion, Method};
 use crate::response::Standard::{
@@ -28,7 +31,7 @@ const HEADER_READER_BUF_MAX_IDX: usize = limits::HEADER_READER_BUF_SIZE - 1;
 /// A `ClientConnection` is an object that will store a socket to a client
 /// and return Request objects.
 pub(crate) struct ClientConnection {
-    /// store registration to count all open ClientConnection
+    /// store registration to count all open `ClientConnection`
     _client_counter: ArcRegistrationU16,
 
     /// set to true if we know that the previous request is the last one
@@ -130,7 +133,11 @@ impl ClientConnection {
     ///
     /// The overall header limit is 8K.
     /// The limit per header line is 2K.
-    fn read_next_line(&mut self, buf: &mut Vec<u8>) -> Result<(), ReadError> {
+    fn read_next_line(
+        &mut self,
+        buf: &mut Vec<u8>,
+        version: Option<HttpVersion>,
+    ) -> Result<(), ReadError> {
         let mut bytes = [0u8; limits::HEADER_READER_BUF_SIZE];
         let mut cr_pos = 0;
         let mut limit = 0;
@@ -184,7 +191,7 @@ impl ClientConnection {
                 cr_pos = w;
             } else if (b < 32 && b != 9) || b == 127 || cr_pos > 0 {
                 // abort early when byte range of client violates spec
-                return Err(ReadError::RfcViolation);
+                return Err(ReadError::RfcViolation(version));
             } else if space_only && b != 32 && b != 9 {
                 space_only = false;
             }
@@ -201,7 +208,7 @@ impl ClientConnection {
 
         if space_only {
             // spec doesn't allow lines with only spaces
-            return Err(ReadError::RfcViolation);
+            return Err(ReadError::RfcViolation(version));
         }
 
         Ok(())
@@ -219,7 +226,7 @@ impl ClientConnection {
 
             // reading the request line
             let (method, path, version) = {
-                self.read_next_line(&mut line_buf).map_err(|err| {
+                self.read_next_line(&mut line_buf, None).map_err(|err| {
                     match err {
                         ReadError::HttpProtocol(v, RequestHeaderFieldsTooLarge431) => {
                             // match to 414 URI Too Long for request line
@@ -230,7 +237,6 @@ impl ClientConnection {
                 })?;
 
                 let line_len = line_buf.len();
-
                 if line_len == 0 {
                     return Err(ReadError::ReadIoError(IoError::new(
                         IoErrorKind::TimedOut,
@@ -250,32 +256,34 @@ impl ClientConnection {
             };
 
             let path = std::str::from_utf8(path).unwrap().to_owned();
+            let mut headers = None;
 
-            // getting all headers
-            let headers = {
-                let mut headers = Vec::new();
-                loop {
-                    self.read_next_line(&mut line_buf)?;
+            if version >= HttpVersion::Version1_0 {
+                // getting all headers
+                headers = {
+                    let mut headers = Vec::new();
+                    loop {
+                        self.read_next_line(&mut line_buf, Some(version))?;
 
-                    let line_len = line_buf.len();
+                        let line_len = line_buf.len();
+                        if line_len == 0 {
+                            break; // header end
+                        }
 
-                    if line_len == 0 {
-                        break; // header end
+                        header_limit_rest = header_limit_rest.checked_sub(line_len).ok_or(
+                            // Request Header Fields Too Large
+                            ReadError::HttpProtocol(version, RequestHeaderFieldsTooLarge431),
+                        )?;
+
+                        headers.push(match Header::try_from(line_buf.as_slice()) {
+                            Ok(h) => h,
+                            _ => return Err(ReadError::Header(version)),
+                        });
                     }
 
-                    header_limit_rest = header_limit_rest.checked_sub(line_len).ok_or(
-                        // Request Header Fields Too Large
-                        ReadError::HttpProtocol(version, RequestHeaderFieldsTooLarge431),
-                    )?;
-
-                    headers.push(match Header::try_from(line_buf.as_slice()) {
-                        Ok(h) => h,
-                        _ => return Err(ReadError::Header(version)),
-                    });
-                }
-
-                headers
-            };
+                    Some(headers)
+                };
+            }
 
             (method, path, version, headers)
         };
@@ -292,21 +300,33 @@ impl ClientConnection {
         let source_data = next_header_source; // move to make clear for current swap
 
         // building the next request
-        let request = Request::create(
-            self.limits.content_buffer_size,
-            headers,
-            method,
-            path,
-            self.secure,
-            version,
-            *self.remote_addr.as_ref().unwrap(),
-            source_data,
-            writer,
-        )
-        .map_err(|err| {
-            log::warn!("request: {err}");
-            ReadError::from((err, version))
-        })?;
+        let request = if version >= HttpVersion::Version1_0 {
+            Request::create(
+                self.limits.content_buffer_size,
+                headers.unwrap(),
+                method,
+                path,
+                self.secure,
+                version,
+                *self.remote_addr.as_ref().unwrap(),
+                source_data,
+                writer,
+            )
+            .map_err(|err| {
+                log::warn!("request: {err}");
+                ReadError::from((err, version))
+            })?
+        } else {
+            #[cfg(not(feature = "http-0-9"))]
+            return Err(ReadError::HttpVersion(Some(version)));
+            #[cfg(feature = "http-0-9")]
+            Request::create_http_0_9(
+                path,
+                self.secure,
+                *self.remote_addr.as_ref().unwrap(),
+                writer,
+            )
+        };
 
         // return the request
         Ok(request)
@@ -335,8 +355,14 @@ impl ClientConnection {
                 return ReadError::WouldBlock;
             }
 
-            ReadError::RequestLine | ReadError::RfcViolation => {
+            ReadError::RequestLine => {
                 send_error_std_response(self, BadRequest400, None, false);
+                // we don't know where the next request would start,
+                // so we have to close
+            }
+
+            ReadError::RfcViolation(ver) => {
+                send_error_std_response(self, BadRequest400, ver, false);
                 // we don't know where the next request would start,
                 // so we have to close
             }
@@ -353,8 +379,8 @@ impl ClientConnection {
                 // so we have to close
             }
 
-            ReadError::HttpVersion(_ver) => {
-                send_error_std_response(self, HttpVersionNotSupported505, None, false);
+            ReadError::HttpVersion(ver) => {
+                send_error_std_response(self, HttpVersionNotSupported505, ver, false);
             }
 
             ReadError::ExpectationFailed(ver) => {
@@ -459,7 +485,11 @@ fn send_error_std_response(
     version: Option<HttpVersion>,
     do_not_send_body: bool,
 ) {
-    let version = version.unwrap_or(HttpVersion::Version1_0);
+    let version = if status == HttpVersionNotSupported505 {
+        HttpVersion::Version1_0
+    } else {
+        version.unwrap_or(HttpVersion::Version1_0)
+    };
 
     let writer = client_connection.sink.next().unwrap();
     let response = <&response::StandardResponse>::from(&status);
@@ -497,7 +527,7 @@ pub(crate) enum ReadError {
     HttpVersion(Option<HttpVersion>),
     ReadIoError(IoError),
     RequestLine,
-    RfcViolation,
+    RfcViolation(Option<HttpVersion>),
     WouldBlock,
 }
 
@@ -526,7 +556,7 @@ impl std::fmt::Display for ReadError {
             }
             Self::ReadIoError(err) => err.fmt(f),
             Self::RequestLine => f.write_str("no request"),
-            Self::RfcViolation => f.write_str("http rfc violation"),
+            Self::RfcViolation(_) => f.write_str("http rfc violation"),
             Self::WouldBlock => f.write_str("would block"),
         }
     }
@@ -601,16 +631,29 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, &[u8], HttpVersion), ReadE
         pos += 1;
     }
 
-    if method_pos.1 == 0 || path_pos.1 == 0 {
+    if method_pos.1 == 0 {
         return Err(ReadError::RequestLine);
     }
 
-    let method = Method::from(&line[method_pos.0..method_pos.1]);
-    let path = &line[path_pos.0..path_pos.1];
-    let version = if let Ok(ver) = HttpVersion::try_from(&line[version_pos.0..]) {
-        if ver <= HttpVersion::Version1_1 {
+    let mut method = Method::from(&line[method_pos.0..method_pos.1]);
+    let (path, version) = if path_pos.1 == 0 {
+        #[cfg(not(feature = "http-0-9"))]
+        return Err(ReadError::HttpVersion(Some(HttpVersion::Version0_9)));
+        #[cfg(feature = "http-0-9")]
+        {
+            let path = &line[path_pos.0..];
+            (path, HttpVersion::Version0_9)
+        }
+    } else if let Ok(ver) = HttpVersion::try_from(&line[version_pos.0..]) {
+        #[cfg(feature = "http-0-9")]
+        let min_ver = HttpVersion::Version0_9;
+        #[cfg(not(feature = "http-0-9"))]
+        let min_ver = HttpVersion::Version1_0;
+
+        if version_pos.0 > path_pos.1 && ver <= HttpVersion::Version1_1 && ver >= min_ver {
             // only up to 1.1 supported
-            ver
+            let path = &line[path_pos.0..path_pos.1];
+            (path, ver)
         } else {
             return Err(ReadError::HttpVersion(Some(ver)));
         }
@@ -618,22 +661,42 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, &[u8], HttpVersion), ReadE
         return Err(ReadError::HttpVersion(None));
     };
 
+    if version == HttpVersion::Version1_0 && method > Method::Post && method <= Method::Patch {
+        method = Method::NonStandard(AsciiString::from_str(method.as_str()).ok());
+    }
+
+    #[cfg(feature = "http-0-9")]
+    if version == HttpVersion::Version0_9 && method != Method::Get {
+        return Err(ReadError::RfcViolation(Some(HttpVersion::Version0_9)));
+    }
+
     Ok((method, path, version))
 }
 
 #[cfg(test)]
 mod test {
-    use crate::HttpVersion;
+    use crate::{HttpVersion, Method};
 
     #[test]
     fn parse_request_line_test() {
         let (method, path, ver) = super::parse_request_line(&b"GET /hello HTTP/1.1"[..]).unwrap();
 
-        assert!(method == crate::Method::Get);
+        assert!(method == Method::Get);
         assert!(path == b"/hello");
         assert!(ver == HttpVersion::Version1_1);
 
-        assert!(super::parse_request_line(&b"GET /hello"[..]).is_err());
+        #[cfg(feature = "http-0-9")]
+        {
+            assert!(super::parse_request_line(&b"GET /hello"[..]).is_ok());
+            assert!(super::parse_request_line(&b"GET /hello HTTP/0.9"[..]).is_ok());
+        }
+        #[cfg(not(feature = "http-0-9"))]
+        {
+            assert!(super::parse_request_line(&b"GET /hello"[..]).is_err());
+            assert!(super::parse_request_line(&b"GET /hello HTTP/0.9"[..]).is_err());
+        }
+
+        assert!(super::parse_request_line(&b"HEAD /hello"[..]).is_err());
         assert!(super::parse_request_line(&b"qsd qsd qsd"[..]).is_err());
         assert!(super::parse_request_line(&b" GET /hello HTTP/1.1"[..]).is_err());
         assert!(super::parse_request_line(&b"GET /hello HTTP/1.1 "[..]).is_err());
@@ -649,10 +712,13 @@ mod test {
         );
         assert!(super::parse_request_line(&b"OPTIONS * HTTP/1.1"[..]).is_ok());
 
-        let (method, _, _) = super::parse_request_line(&b"loGET /hello HTTP/1.1"[..]).unwrap();
+        let (method, _, _) = super::parse_request_line(&b"OPTIONS * HTTP/1.0"[..]).unwrap();
         assert_eq!(
             method,
-            crate::Method::NonStandard(Some("loGET".parse().unwrap()))
+            Method::NonStandard(Some("OPTIONS".parse().unwrap()))
         );
+
+        let (method, _, _) = super::parse_request_line(&b"loGET /hello HTTP/1.1"[..]).unwrap();
+        assert_eq!(method, Method::NonStandard(Some("loGET".parse().unwrap())));
     }
 }

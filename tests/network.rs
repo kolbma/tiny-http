@@ -410,7 +410,10 @@ fn supported_http_versions_test() {
     }
 
     fn check_client_close(client: TcpStream, content: &str) -> TcpStream {
-        if content.contains("HTTP/1.0") || content.to_lowercase().contains("connection: close") {
+        if content.contains("HTTP/1.0")
+            || content.to_lowercase().contains("connection: close")
+            || !content.contains("HTTP/")
+        {
             let client = support::new_client_to_hello_world_server();
             let _ = client.set_read_timeout(Some(Duration::from_millis(100)));
             client
@@ -424,12 +427,23 @@ fn supported_http_versions_test() {
 
     let mut content = String::new();
 
-    write!(client, "GET / HTTP/0.9\r\nHost: localhost\r\n\r\n").unwrap();
+    write!(client, "GET / HTTP/0.9\r\n").unwrap();
     let _ = client.flush();
 
     let _ = client.read_to_string(&mut content);
     client = check_client_close(client, &content);
-    assert_contains(200, "0.9", &mut content);
+
+    #[cfg(feature = "http-0-9")]
+    assert_eq!(&mut content, "hello world");
+    #[cfg(not(feature = "http-0-9"))]
+    {
+        assert!(
+            content.ends_with("HTTP Version Not Supported"),
+            "content: {}",
+            content
+        );
+        assert_contains(505, "1.0", &mut content);
+    }
 
     for v in ["1.0", "1.1"] {
         write!(client, "GET / HTTP/{v}\r\nHost: localhost\r\n\r\n").unwrap();

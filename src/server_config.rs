@@ -38,7 +38,7 @@ pub struct ServerConfig {
     pub limits: LimitsConfig,
 
     /// Socket configuration
-    /// See [SocketConfig]
+    /// See [`SocketConfig`]
     pub socket_config: Arc<SocketConfig>,
 
     /// If `Some`, then the server will use SSL to encode the communications.

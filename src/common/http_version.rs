@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt};
+use std::convert::TryFrom;
 
 use ascii::AsciiStr;
 
@@ -29,7 +29,7 @@ impl HttpVersion {
 }
 
 impl std::fmt::Display for HttpVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let v = match self {
             Self::Version1_1 => "1.1",
             Self::Version3 => "3",
@@ -113,7 +113,7 @@ pub struct HttpVersionError(u8, u8);
 impl std::error::Error for HttpVersionError {}
 
 impl std::fmt::Display for HttpVersionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0 < 2 {
             f.write_fmt(format_args!("unsupported HTTP/{}.{}", self.0, self.1))
         } else {
@@ -128,10 +128,17 @@ mod tests {
 
     use ascii::AsciiStr;
 
-    use super::HttpVersion;
+    use super::{HttpVersion, HTTP_VERSION_HEADER};
 
     #[test]
-    fn test_parse_http_version() {
+    fn check_header_test() {
+        for h in HTTP_VERSION_HEADER {
+            assert_eq!(HttpVersion::try_from(*h).unwrap().header(), *h);
+        }
+    }
+
+    #[test]
+    fn parse_http_version_test() {
         let table = [
             ("HTTP/0.9", Some(HttpVersion::Version0_9)),
             ("HTTP/1.0", Some(HttpVersion::Version1_0)),

@@ -46,6 +46,7 @@ Feature __content-type__ requires __1.70__.
 #### Default features
 
 - log: uses log trait to debug and error
+- http-0-9: supporting HTTP/0.9 simple requests
 
 #### Optional features
 
@@ -110,6 +111,22 @@ Tiny-http was designed with speed in mind:
  request has not yet been answered. The reading part of the socket will also be immediately closed.
  - Decoding the client's request is done lazily. If you don't read the request's body, it will not
  be decoded.
+
+### HTTP/0.9
+
+HTTP/0.9 doesn't know headers, content-types and anything different to GET requests.  
+The request handling accepts only a simple GET request and provides an empty
+data reader, because HTTP/0.9 can't send any data to the server.  
+Responses with HTTP/0.9 version doesn't include any header. Clients expect parsing an
+HTML document with an 80 chars line limit.  
+Errors are sent plain text, expecting clients can handle this.
+
+To provide a correct HTTP/0.9 response this has to be handled in every [`Response`].  
+Clients see e.g. a simple text _Permanent Redirect_, if your response would have
+[`StatusCode`] 308.  
+
+By disabling the support, every HTTP/0.9 request is responded with something similar to
+the Status 505 and presenting the client just the reason text _HTTP Version Not Supported_.
 
 ### Example Implementations
 

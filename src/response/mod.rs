@@ -308,71 +308,55 @@ where
         do_not_send_body: bool,
         upgrade: Option<&str>,
     ) -> IoResult<()> {
-        let mut headers = util::set_default_headers_if_not_set(&self.headers);
-
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
             self.status_code,
             &request_headers.and_then(|h| h.header(b"TE", None)),
             http_version,
             &self.data_length,
-            false, /* TODO */
+            false, /* TODO: additional_headers receiving feature */
             self.chunked_threshold(),
         ));
 
-        // handling upgrade
-        if let Some(upgrade) = upgrade {
-            headers.push(ConnectionValue::Upgrade.into());
-            headers.push(Header::from_bytes(b"Upgrade", &upgrade).unwrap());
-            transfer_encoding = None;
-        }
+        if http_version >= HttpVersion::Version1_0 {
+            let mut headers = util::set_default_headers_if_not_set(&self.headers);
 
-        // if the transfer encoding is identity, the content length must be known
-        // therefore if we don't know it, we buffer the entire response first here
-        // while this is an expensive operation, it is only ever needed for clients using HTTP 1.0
-        let te_data = match (
-            transfer_encoding,
-            self.data_length.is_none(),
-            self.data.as_mut(),
-        ) {
-            (Some(TransferEncoding::Identity), true, Some(data)) => {
-                let mut buf = Vec::new();
-                let _ = data.read_to_end(&mut buf)?;
-                let l = buf.len();
-                self.data_length = Some(l);
-                Some(Cursor::new(buf))
+            // handling upgrade
+            if let Some(upgrade) = upgrade {
+                headers.push(ConnectionValue::Upgrade.into());
+                headers.push(Header::from_bytes(b"Upgrade", &upgrade).unwrap());
+                transfer_encoding = None;
             }
-            _ => None,
-        };
 
-        // preparing headers for transfer
-        util::update_te_headers(&mut headers, transfer_encoding, &self.data_length);
+            // preparing headers for transfer
+            util::update_te_headers(&mut headers, transfer_encoding, &self.data_length);
 
-        // if assert fails the `Vec` at beginning should get a new capacity
-        debug_assert!(headers.len() <= 6, "headers.len: {}", headers.len());
+            // if assert fails the `Vec` at beginning should get a new capacity
+            debug_assert!(headers.len() <= 6, "headers.len: {}", headers.len());
 
-        // checking whether to ignore the body of the response
-        let do_not_send_body =
-            do_not_send_body || util::is_body_for_status_ignored(self.status_code);
+            // checking whether to ignore the body of the response
+            let do_not_send_body =
+                do_not_send_body || util::is_body_for_status_ignored(self.status_code);
 
-        if do_not_send_body {
-            util::update_optional_hashset(
-                &mut self.filter_headers,
-                [
-                    common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
-                    common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
-                ],
-            );
+            if do_not_send_body {
+                util::update_optional_hashset(
+                    &mut self.filter_headers,
+                    [
+                        common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
+                        common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
+                    ],
+                );
+            }
+
+            // sending headers
+            util::write_message_header(
+                &mut writer,
+                http_version,
+                self.status_code,
+                &headers,
+                &self.headers,
+                &self.filter_headers,
+            )?;
         }
-
-        // sending headers
-        util::write_message_header(
-            &mut writer,
-            http_version,
-            self.status_code,
-            &headers,
-            &self.headers,
-            &self.filter_headers,
-        )?;
 
         // sending the body
         if !do_not_send_body {
@@ -385,6 +369,20 @@ where
                 }
 
                 Some(TransferEncoding::Identity) => {
+                    // if the transfer encoding is identity, the content length must be known
+                    // therefore if we don't know it, we buffer the entire response first here
+                    // while this is an expensive operation, it is only ever needed for clients using HTTP 1.0
+                    let te_data = match (self.data_length, self.data.as_mut()) {
+                        (None, Some(data)) => {
+                            let mut buf = Vec::new();
+                            let _ = data.read_to_end(&mut buf)?;
+                            let l = buf.len();
+                            self.data_length = Some(l);
+                            Some(Cursor::new(buf))
+                        }
+                        _ => None,
+                    };
+
                     debug_assert!(self.data_length.is_some());
                     let data_length = self.data_length.unwrap();
 
@@ -585,7 +583,7 @@ impl Clone for Response<Cursor<&[u8]>> {
     }
 }
 
-impl Response<std::io::Empty> {
+impl Response<io::Empty> {
     /// Builds an empty `Response` with the given status code.
     #[inline]
     pub fn empty<S>(status_code: S) -> Self
@@ -655,8 +653,6 @@ where
         do_not_send_body: bool,
         upgrade: Option<&str>,
     ) -> IoResult<()> {
-        let mut headers = util::set_default_headers_if_not_set(&self.headers);
-
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
             self.status_code,
             &request_headers.and_then(|h| h.header(b"TE", None)),
@@ -666,52 +662,47 @@ where
             self.chunked_threshold(),
         ));
 
-        // handling upgrade
-        if let Some(upgrade) = upgrade {
-            headers.push(ConnectionValue::Upgrade.into());
-            headers.push(Header::from_bytes(b"Upgrade", &upgrade).unwrap());
-            transfer_encoding = None;
+        if http_version >= HttpVersion::Version1_0 {
+            let mut headers = util::set_default_headers_if_not_set(&self.headers);
+
+            // handling upgrade
+            if let Some(upgrade) = upgrade {
+                headers.push(ConnectionValue::Upgrade.into());
+                headers.push(Header::from_bytes(b"Upgrade", &upgrade).unwrap());
+                transfer_encoding = None;
+            }
+
+            // preparing headers for transfer
+            util::update_te_headers(&mut headers, transfer_encoding, &self.data_length);
+
+            // if assert fails the `Vec` at beginning should get a new capacity
+            debug_assert!(headers.len() <= 6, "headers.len: {}", headers.len());
+
+            // checking whether to ignore the body of the response
+            let do_not_send_body =
+                do_not_send_body || util::is_body_for_status_ignored(self.status_code);
+
+            let mut filter_headers = self.filter_headers.clone();
+            if do_not_send_body {
+                util::update_optional_hashset(
+                    &mut filter_headers,
+                    [
+                        common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
+                        common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
+                    ],
+                );
+            }
+
+            // sending headers
+            util::write_message_header(
+                &mut writer,
+                http_version,
+                self.status_code,
+                &headers,
+                &self.headers,
+                &filter_headers,
+            )?;
         }
-
-        // if the transfer encoding is identity, the content length must be known
-        // therefore if we don't know it, we buffer the entire response first here
-        // while this is an expensive operation, it is only ever needed for clients using HTTP 1.0
-        debug_assert!(
-            self.data_length.is_some()
-                || (transfer_encoding.is_none()
-                    || !matches!(transfer_encoding, Some(TransferEncoding::Identity)))
-        );
-
-        // preparing headers for transfer
-        util::update_te_headers(&mut headers, transfer_encoding, &self.data_length);
-
-        // if assert fails the `Vec` at beginning should get a new capacity
-        debug_assert!(headers.len() <= 6, "headers.len: {}", headers.len());
-
-        // checking whether to ignore the body of the response
-        let do_not_send_body =
-            do_not_send_body || util::is_body_for_status_ignored(self.status_code);
-
-        let mut filter_headers = self.filter_headers.clone();
-        if do_not_send_body {
-            util::update_optional_hashset(
-                &mut filter_headers,
-                [
-                    common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
-                    common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
-                ],
-            );
-        }
-
-        // sending headers
-        util::write_message_header(
-            &mut writer,
-            http_version,
-            self.status_code,
-            &headers,
-            &self.headers,
-            &filter_headers,
-        )?;
 
         // sending the body with cloned reader
         if !do_not_send_body {
@@ -725,6 +716,7 @@ where
                 }
 
                 Some(TransferEncoding::Identity) => {
+                    // if the transfer encoding is identity, the content length must be known
                     debug_assert!(self.data_length.is_some());
                     let data_length = self.data_length.unwrap();
 

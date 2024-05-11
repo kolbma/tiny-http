@@ -124,6 +124,7 @@ impl TestRequest {
     }
 
     #[must_use]
+    #[allow(clippy::assigning_clones /* reason = "MSRV < 1.63" */)]
     pub fn with_path(mut self, path: &str) -> Self {
         self.path = path.to_owned();
         self

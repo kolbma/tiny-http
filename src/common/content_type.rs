@@ -65,6 +65,7 @@ create_content_types!(
 static CONTENT_TYPE_LOOKUP: OnceLock<HashMap<&&[u8], usize>> = OnceLock::new();
 
 #[inline]
+#[allow(clippy::incompatible_msrv)]
 fn content_type_lookup(value: &[u8]) -> Option<ContentType> {
     let map = CONTENT_TYPE_LOOKUP.get_or_init(|| {
         let mut map = HashMap::new();

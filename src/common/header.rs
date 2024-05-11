@@ -11,9 +11,9 @@ use crate::response::util::number_to_bytes;
 /// Represents a HTTP header.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Header {
-    /// `field` of ['Header']
+    /// `field` of [`Header`]
     pub field: HeaderField,
-    /// `value` ['HeaderFieldValue'] for ['HeaderField']
+    /// `value` [`HeaderFieldValue`] for [`HeaderField`]
     pub value: HeaderFieldValue,
 }
 

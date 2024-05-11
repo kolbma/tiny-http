@@ -1,12 +1,10 @@
-use std::{fmt, str::FromStr};
-
 use ascii::{AsciiStr, AsciiString};
 
 /// HTTP request methods
 ///
 /// As per [RFC 7231](https://tools.ietf.org/html/rfc7231#section-4.1) and
 /// [RFC 5789](https://tools.ietf.org/html/rfc5789)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
 pub enum Method {
     /// `GET`
     Get,
@@ -49,7 +47,7 @@ impl Method {
     }
 }
 
-impl FromStr for Method {
+impl std::str::FromStr for Method {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Method, ()> {
@@ -58,7 +56,7 @@ impl FromStr for Method {
 }
 
 impl std::fmt::Display for Method {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str(self.as_str())
     }
 }

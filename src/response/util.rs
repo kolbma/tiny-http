@@ -229,11 +229,19 @@ where
     W: Write,
 {
     let mut status_line = [b' '; 15 + 31]; // 31 is longest reasonphrase
-    status_line[0..8].copy_from_slice(http_version.header().as_bytes());
-    let _ = number_to_bytes!(status_code.0, status_line[9..12], 3);
+
+    let version_header = http_version.header().as_bytes();
+    let version_header_len = version_header.len();
+
+    status_line[0..version_header_len].copy_from_slice(version_header);
+    let _ = number_to_bytes!(
+        status_code.0,
+        status_line[(version_header_len + 1)..(version_header_len + 4)],
+        3
+    );
     let phrase = status_code.default_reason_phrase();
-    let phrase_end = phrase.len() + 13;
-    status_line[13..phrase_end].copy_from_slice(phrase.as_bytes());
+    let phrase_end = phrase.len() + version_header_len + 5;
+    status_line[(version_header_len + 5)..phrase_end].copy_from_slice(phrase.as_bytes());
     status_line[phrase_end..(phrase_end + 2)].copy_from_slice(&[b'\r', b'\n']);
 
     writer.write_all(&status_line[0..(phrase_end + 2)])?;

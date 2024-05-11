@@ -3,7 +3,7 @@
 use ascii::{AsciiStr, AsciiString};
 use lazy_static::lazy_static;
 use std::convert::TryFrom;
-use std::fmt::{self, Formatter};
+use std::fmt::Formatter;
 
 use super::header::HeaderFieldValue;
 
@@ -214,7 +214,7 @@ lazy_static! {
 }
 
 impl std::fmt::Display for ConnectionValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.into())
     }
 }

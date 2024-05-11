@@ -16,9 +16,9 @@ rust-version = "1.61"
 
 # msrv:
 # content-type 1.70
-# native-tls 1.60
-# openssl 1.60
-# rustls 1.61
+# native-tls 1.63
+# openssl 1.63
+# rustls 1.63
 # socket2 1.63 
 
 [package.metadata]
@@ -26,8 +26,9 @@ rust-version = "1.61"
 msrv = "1.61"
 
 [features]
-default = ["log"]
+default = ["http-0-9", "log"]
 content-type = []
+http-0-9 = []
 socket2 = ["dep:socket2"]
 ssl = ["ssl-openssl"]
 ssl-openssl = ["openssl", "zeroize"]
@@ -35,14 +36,14 @@ ssl-rustls = ["rustls", "rustls-pemfile", "zeroize"]
 ssl-native-tls = ["native-tls", "zeroize"]
 
 [dependencies]
-ahash = "0.8.7"
+ahash = "0.8.11"
 ascii = "1.1"
 chunked_transfer = "1"
 httpdate = "1.0.3"
 lazy_static = "1.4.0"
 log = { version = "0.4.20", optional = true }
 openssl = { version = "0.10", optional = true }
-rustls = { version = "0.22.2", optional = true }
+rustls = { version = "0.22.4", optional = true }
 rustls-pemfile = { version = "2.0.0", optional = true }
 socket2 = { version = "0.5.5", optional = true }
 zeroize = { version = "1", optional = true }

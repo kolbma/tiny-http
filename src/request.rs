@@ -279,7 +279,7 @@ impl Request {
     pub fn remote_addr_string(&self) -> String {
         self.remote_addr
             .as_ref()
-            .map_or(String::default(), std::string::ToString::to_string)
+            .map_or(String::default(), ToString::to_string)
     }
 
     /// Sends a response to this request.
@@ -540,6 +540,34 @@ impl Request {
             response_writer: Some(Box::new(writer)),
             secure,
         })
+    }
+
+    #[cfg(feature = "http-0-9")]
+    pub(crate) fn create_http_0_9<W>(
+        path: String,
+        secure: bool,
+        remote_addr: Option<SocketAddr>,
+        writer: W,
+    ) -> Request
+    where
+        W: Write + Send + 'static,
+    {
+        Request {
+            connection_header: None,
+            content_length: None,
+            #[cfg(feature = "content-type")]
+            content_type: None,
+            data_reader: Some(Box::new(io::empty())),
+            expect_continue: false,
+            headers: HeaderData::new(Vec::new()),
+            http_version: HttpVersion::Version0_9,
+            method: Method::Get,
+            notify_when_responded: None,
+            path,
+            remote_addr,
+            response_writer: Some(Box::new(writer)),
+            secure,
+        }
     }
 
     /// Set [`ConnectionHeader`] of [`Request`]

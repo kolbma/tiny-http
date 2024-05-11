@@ -85,7 +85,7 @@ impl OpenSslContext {
         use openssl::ssl::{self, SslVerifyMode};
         use openssl::x509::X509;
 
-        let mut ctx = openssl::ssl::SslContext::builder(ssl::SslMethod::tls())?;
+        let mut ctx = ssl::SslContext::builder(ssl::SslMethod::tls())?;
         ctx.set_cipher_list("DEFAULT")?;
         let certificate_chain = X509::stack_from_pem(certificates)?;
         if certificate_chain.is_empty() {

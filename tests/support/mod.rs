@@ -50,9 +50,9 @@ where
     let addr = addr.to_socket_addrs().unwrap().next().unwrap();
 
     let stream = if let Some(timeout) = timeout {
-        std::net::TcpStream::connect_timeout(&addr, timeout)
+        TcpStream::connect_timeout(&addr, timeout)
     } else {
-        std::net::TcpStream::connect(addr)
+        TcpStream::connect(addr)
     }
     .unwrap();
 

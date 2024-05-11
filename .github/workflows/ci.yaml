@@ -15,6 +15,7 @@ jobs:
           - ''
         features-1-63:
           - ''
+          - --features http-0-9
           - --features log
           - --features socket2
           - --features ssl-openssl
@@ -45,10 +46,8 @@ jobs:
           - --no-default-features
         features-1-61:
           - ''
+          - --features http-0-9
           - --features log
-          - --features ssl-openssl
-          - --features ssl-rustls
-          - --features ssl-native-tls
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
@@ -74,6 +73,7 @@ jobs:
           - ''
         features:
           - ''
+          - --features http-0-9
           - --features log
           - --features socket2
           - --features ssl-openssl
@@ -101,9 +101,10 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.61'
+          - '1.63'
         features:
           - ''
+          - http-0-9
           - ssl-native-tls
           - ssl
     steps:
@@ -133,7 +134,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.61'
+          - '1.63'
         features:
           - ''
           - log
@@ -164,7 +165,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.61'
+          - '1.63'
         features:
           - ''
           - log
@@ -198,6 +199,7 @@ jobs:
           - '1.63'
         features:
           - ''
+          - http-0-9
           - log
           - ssl-native-tls
           - ssl-rustls
@@ -229,7 +231,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - '1.61'
+          - '1.63'
         features:
           - ''
           - log
@@ -262,6 +264,7 @@ jobs:
           - nightly
         features:
           - ''
+          - http-0-9
           - log
           - socket2
           - ssl-rustls
