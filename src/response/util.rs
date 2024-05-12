@@ -2,9 +2,10 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::hash::Hash;
-use std::io::{Result as IoResult, Write};
+use std::io::{self, Cursor, Read, Result as IoResult, Write};
 
 use crate::common::{self, Header, HeaderField, HeaderFieldValue, HttpVersion, StatusCode};
+use crate::Response;
 
 use super::date_header::DateHeader;
 use super::transfer_encoding::TransferEncoding;
@@ -117,7 +118,7 @@ pub(super) fn set_default_headers_if_not_set(headers: &Option<Vec<Header>>) -> V
 }
 
 #[inline]
-pub(super) fn update_optional_hashset<T, const N: usize>(
+pub(crate) fn update_optional_hashset<T, const N: usize>(
     set: &mut Option<HashSet<T>>,
     values: [T; N],
 ) where
@@ -214,6 +215,88 @@ pub(super) fn update_te_headers(
         }
         _ => {}
     };
+}
+
+#[inline]
+pub(super) fn write_body<R: Read, W: Write>(
+    response: &mut Response<R>,
+    transfer_encoding: Option<TransferEncoding>,
+    mut writer: W,
+) -> IoResult<()> {
+    match transfer_encoding {
+        Some(TransferEncoding::Chunked) => {
+            if let Some(reader) = &mut response.data {
+                let mut writer = chunked_transfer::Encoder::new(writer);
+                #[cfg(feature = "range-support")]
+                if let Some(content_range) = &response.content_range {
+                    let _ = common::range_header::response::range_copy(
+                        reader,
+                        &mut writer,
+                        content_range,
+                    )?;
+                } else {
+                    let _ = io::copy(reader, &mut writer)?;
+                }
+                #[cfg(not(feature = "range-support"))]
+                let _ = io::copy(reader, &mut writer)?;
+            }
+        }
+
+        Some(TransferEncoding::Identity) => {
+            // if the transfer encoding is identity, the content length must be known
+            // therefore if we don't know it, we buffer the entire response first here
+            // while this is an expensive operation, it is only ever needed for clients using HTTP 1.0
+            let te_data = match (response.data_length, response.data.as_mut()) {
+                (None, Some(data)) => {
+                    let mut buf = Vec::new();
+                    let _ = data.read_to_end(&mut buf)?;
+                    let l = buf.len();
+                    response.data_length = Some(l);
+                    Some(Cursor::new(buf))
+                }
+                _ => None,
+            };
+
+            debug_assert!(response.data_length.is_some());
+            let data_length = response.data_length.unwrap();
+
+            if data_length >= 1 {
+                if let Some(mut reader) = te_data {
+                    #[cfg(feature = "range-support")]
+                    if let Some(content_range) = &mut response.content_range {
+                        content_range.ranges[0].set_complete_length(response.data_length);
+                        let _ = common::range_header::response::range_copy(
+                            &mut reader,
+                            &mut writer,
+                            content_range,
+                        )?;
+                    } else {
+                        let _ = io::copy(&mut reader, &mut writer)?;
+                    }
+                    #[cfg(not(feature = "range-support"))]
+                    let _ = io::copy(&mut reader, &mut writer)?;
+                } else if let Some(reader) = &mut response.data {
+                    #[cfg(feature = "range-support")]
+                    if let Some(content_range) = &mut response.content_range {
+                        content_range.ranges[0].set_complete_length(response.data_length);
+                        let _ = common::range_header::response::range_copy(
+                            reader,
+                            &mut writer,
+                            content_range,
+                        )?;
+                    } else {
+                        let _ = io::copy(reader, &mut writer)?;
+                    }
+                    #[cfg(not(feature = "range-support"))]
+                    let _ = io::copy(reader, &mut writer)?;
+                }
+            }
+        }
+
+        _ => {}
+    }
+
+    Ok(())
 }
 
 #[inline]

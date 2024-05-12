@@ -26,9 +26,10 @@ rust-version = "1.61"
 msrv = "1.61"
 
 [features]
-default = ["http-0-9", "log"]
+default = ["http-0-9", "log", "range-support"]
 content-type = []
 http-0-9 = []
+range-support = []
 socket2 = ["dep:socket2"]
 ssl = ["ssl-openssl"]
 ssl-openssl = ["openssl", "zeroize"]

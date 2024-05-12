@@ -10,6 +10,28 @@ use crate::Response;
 /// `StandardResponse` is type for `static` standard [`Response`]
 pub type StandardResponse = Response<Cursor<&'static [u8]>>;
 
+#[cfg(feature = "range-support")]
+lazy_static! {
+    static ref CACHE_100: StandardResponse = Response::from(100);
+    static ref CACHE_200: StandardResponse = Response::from(200);
+    static ref CACHE_201: StandardResponse = Response::from(201);
+    static ref CACHE_204: StandardResponse = Response::from(204);
+    static ref CACHE_206: StandardResponse = Response::from(206);
+    static ref CACHE_400: StandardResponse = Response::from(400);
+    static ref CACHE_404: StandardResponse = Response::from(404);
+    static ref CACHE_405: StandardResponse = Response::from(405);
+    static ref CACHE_408: StandardResponse = Response::from(408);
+    static ref CACHE_413: StandardResponse = Response::from(413);
+    static ref CACHE_414: StandardResponse = Response::from(414);
+    static ref CACHE_416: StandardResponse = Response::from(416);
+    static ref CACHE_417: StandardResponse = Response::from(417);
+    static ref CACHE_431: StandardResponse = Response::from(431);
+    static ref CACHE_500: StandardResponse = Response::from(500);
+    static ref CACHE_501: StandardResponse = Response::from(501);
+    static ref CACHE_505: StandardResponse = Response::from(505);
+}
+
+#[cfg(not(feature = "range-support"))]
 lazy_static! {
     static ref CACHE_100: StandardResponse = Response::from(100);
     static ref CACHE_200: StandardResponse = Response::from(200);
@@ -38,12 +60,16 @@ pub enum Standard {
     Ok200,
     Created201,
     NoContent204,
+    #[cfg(feature = "range-support")]
+    PartialContent206,
     BadRequest400,
     NotFound404,
     MethodNotAllowed405,
     RequestTimeout408,
     ContentTooLarge413,
     UriTooLong414,
+    #[cfg(feature = "range-support")]
+    RangeNotSatisfiable416,
     ExpectationFailed417,
     RequestHeaderFieldsTooLarge431,
     InternalServerError500,
@@ -82,6 +108,10 @@ impl Standard {
             Standard::RequestHeaderFieldsTooLarge431 => &CACHE_431,
             Standard::NotImplemented501 => &CACHE_501,
             Standard::HttpVersionNotSupported505 => &CACHE_505,
+            #[cfg(feature = "range-support")]
+            Standard::PartialContent206 => &CACHE_206,
+            #[cfg(feature = "range-support")]
+            Standard::RangeNotSatisfiable416 => &CACHE_416,
         }
     }
 }
@@ -105,12 +135,16 @@ impl From<Standard> for StatusCode {
             Standard::Ok200 => 200,
             Standard::Created201 => 201,
             Standard::NoContent204 => 204,
+            #[cfg(feature = "range-support")]
+            Standard::PartialContent206 => 206,
             Standard::BadRequest400 => 400,
             Standard::NotFound404 => 404,
             Standard::MethodNotAllowed405 => 405,
             Standard::RequestTimeout408 => 408,
             Standard::ContentTooLarge413 => 413,
             Standard::UriTooLong414 => 414,
+            #[cfg(feature = "range-support")]
+            Standard::RangeNotSatisfiable416 => 416,
             Standard::ExpectationFailed417 => 417,
             Standard::RequestHeaderFieldsTooLarge431 => 431,
             Standard::InternalServerError500 => 500,
@@ -141,6 +175,10 @@ impl TryFrom<StatusCode> for Standard {
             431 => Self::RequestHeaderFieldsTooLarge431,
             501 => Self::NotImplemented501,
             505 => Self::HttpVersionNotSupported505,
+            #[cfg(feature = "range-support")]
+            206 => Self::PartialContent206,
+            #[cfg(feature = "range-support")]
+            416 => Self::RangeNotSatisfiable416,
             _ => return Err(()),
         })
     }
@@ -206,6 +244,41 @@ mod tests {
                 | Standard::InternalServerError500
                 | Standard::NotImplemented501
                 | Standard::HttpVersionNotSupported505 => count += 1,
+                #[cfg(feature = "range-support")]
+                _ => {}
+            }
+        }
+
+        assert_eq!(count, r_list.len());
+
+        for (status, standard) in status_list.iter().zip(r_list.iter()) {
+            let resp = Response::from(*status);
+            let resp_standard = <&StandardResponse>::from(standard);
+            assert_eq!(
+                resp.status_code(),
+                resp_standard.status_code(),
+                "status: {status}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "range-support")]
+    fn init_range_support_test() {
+        let status_list = [206u16, 416];
+        let r_list = [
+            Standard::PartialContent206,
+            Standard::RangeNotSatisfiable416,
+        ];
+
+        assert_eq!(status_list.len(), r_list.len());
+
+        let mut count = 0usize;
+
+        for r in r_list {
+            match r {
+                Standard::PartialContent206 | Standard::RangeNotSatisfiable416 => count += 1,
+                _ => {}
             }
         }
 
@@ -288,12 +361,16 @@ mod tests {
                     Standard::Ok200 => 200,
                     Standard::Created201 => 201,
                     Standard::NoContent204 => 204,
+                    #[cfg(feature = "range-support")]
+                    Standard::PartialContent206 => 206,
                     Standard::BadRequest400 => 400,
                     Standard::NotFound404 => 404,
                     Standard::MethodNotAllowed405 => 405,
                     Standard::RequestTimeout408 => 408,
                     Standard::ContentTooLarge413 => 413,
                     Standard::UriTooLong414 => 414,
+                    #[cfg(feature = "range-support")]
+                    Standard::RangeNotSatisfiable416 => 416,
                     Standard::ExpectationFailed417 => 417,
                     Standard::RequestHeaderFieldsTooLarge431 => 431,
                     Standard::InternalServerError500 => 500,

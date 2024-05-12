@@ -52,6 +52,8 @@ pub type ResponseBox = Response<Box<dyn Read + Send>>;
 #[derive(Debug)]
 pub struct Response<R> {
     chunked_threshold: Option<usize>,
+    #[cfg(feature = "range-support")]
+    pub(crate) content_range: Option<crate::RangeHeader>,
     data: Option<R>,
     data_length: Option<usize>,
     filter_headers: Option<HashSet<HeaderField>>,
@@ -63,6 +65,8 @@ impl<R> Default for Response<R> {
     fn default() -> Self {
         Self {
             chunked_threshold: None,
+            #[cfg(feature = "range-support")]
+            content_range: None,
             data: None,
             data_length: None,
             filter_headers: None,
@@ -220,6 +224,37 @@ where
         Ok(())
     }
 
+    /// Check _Range_ for unsatisfied value
+    #[cfg(feature = "range-support")]
+    #[inline]
+    pub fn is_content_range_unsatisfied(&self) -> bool {
+        common::range_header::response::is_content_range_unsatisfied(self)
+    }
+
+    /// Set [`RangeHeader`](crate::RangeHeader) for _Content-Range_
+    #[cfg(feature = "range-support")]
+    #[inline]
+    pub fn set_content_range(
+        &mut self,
+        first_pos: usize,
+        last_pos: usize,
+        complete_length: Option<usize>,
+    ) {
+        common::range_header::response::set_content_range(
+            self,
+            first_pos,
+            last_pos,
+            complete_length,
+        );
+    }
+
+    /// Mark _Range_ as unsatisfied value
+    #[cfg(feature = "range-support")]
+    #[inline]
+    pub fn set_content_range_unsatisfied(&mut self) {
+        common::range_header::response::set_content_range_unsatisfied(self);
+    }
+
     /// Returns the same request, but with an additional header.
     ///
     /// Some headers cannot be modified and some other have a
@@ -274,6 +309,8 @@ where
     {
         Response {
             chunked_threshold: self.chunked_threshold,
+            #[cfg(feature = "range-support")]
+            content_range: self.content_range,
             data: Some(data),
             data_length,
             filter_headers: self.filter_headers,
@@ -305,7 +342,7 @@ where
         mut writer: W,
         http_version: HttpVersion,
         request_headers: Option<&HeaderData>,
-        do_not_send_body: bool,
+        mut do_not_send_body: bool,
         upgrade: Option<&str>,
     ) -> IoResult<()> {
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
@@ -334,7 +371,7 @@ where
             debug_assert!(headers.len() <= 6, "headers.len: {}", headers.len());
 
             // checking whether to ignore the body of the response
-            let do_not_send_body =
+            do_not_send_body =
                 do_not_send_body || util::is_body_for_status_ignored(self.status_code);
 
             if do_not_send_body {
@@ -344,6 +381,14 @@ where
                         common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
                         common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
                     ],
+                );
+            } else {
+                #[cfg(feature = "range-support")]
+                common::range_header::response::set_content_range_header(
+                    &mut do_not_send_body,
+                    &mut headers,
+                    http_version,
+                    &mut self,
                 );
             }
 
@@ -360,43 +405,7 @@ where
 
         // sending the body
         if !do_not_send_body {
-            match transfer_encoding {
-                Some(TransferEncoding::Chunked) => {
-                    if let Some(mut reader) = self.data {
-                        let mut writer = chunked_transfer::Encoder::new(writer);
-                        let _ = io::copy(&mut reader, &mut writer)?;
-                    }
-                }
-
-                Some(TransferEncoding::Identity) => {
-                    // if the transfer encoding is identity, the content length must be known
-                    // therefore if we don't know it, we buffer the entire response first here
-                    // while this is an expensive operation, it is only ever needed for clients using HTTP 1.0
-                    let te_data = match (self.data_length, self.data.as_mut()) {
-                        (None, Some(data)) => {
-                            let mut buf = Vec::new();
-                            let _ = data.read_to_end(&mut buf)?;
-                            let l = buf.len();
-                            self.data_length = Some(l);
-                            Some(Cursor::new(buf))
-                        }
-                        _ => None,
-                    };
-
-                    debug_assert!(self.data_length.is_some());
-                    let data_length = self.data_length.unwrap();
-
-                    if data_length >= 1 {
-                        if let Some(mut reader) = te_data {
-                            let _ = io::copy(&mut reader, &mut writer)?;
-                        } else if let Some(mut reader) = self.data {
-                            let _ = io::copy(&mut reader, &mut writer)?;
-                        }
-                    }
-                }
-
-                _ => {}
-            }
+            util::write_body(&mut self, transfer_encoding, writer)?;
         }
 
         Ok(())
@@ -417,9 +426,22 @@ where
         self.headers.as_ref()
     }
 
+    #[cfg(feature = "range-support")]
+    #[inline]
+    pub(crate) fn filter_headers_mut(&mut self) -> &mut Option<HashSet<HeaderField>> {
+        &mut self.filter_headers
+    }
+
     /// List of `Response` headers
+    #[inline]
     pub(crate) fn headers_mut(&mut self) -> &mut Option<Vec<Header>> {
         &mut self.headers
+    }
+
+    #[cfg(feature = "range-support")]
+    #[inline]
+    pub(crate) fn set_status_code(&mut self, status_code: StatusCode) {
+        self.status_code = status_code;
     }
 }
 
@@ -431,6 +453,8 @@ where
     pub fn boxed(self) -> ResponseBox {
         Response {
             chunked_threshold: self.chunked_threshold,
+            #[cfg(feature = "range-support")]
+            content_range: self.content_range,
             data: if let Some(data) = self.data {
                 Some(Box::new(data))
             } else {
@@ -574,6 +598,8 @@ impl Clone for Response<Cursor<&[u8]>> {
     fn clone(&self) -> Self {
         Self {
             chunked_threshold: self.chunked_threshold,
+            #[cfg(feature = "range-support")]
+            content_range: self.content_range.clone(),
             data: self.data.clone(),
             data_length: self.data_length,
             filter_headers: self.filter_headers.clone(),
@@ -613,12 +639,14 @@ impl Response<io::Empty> {
 impl Clone for Response<io::Empty> {
     fn clone(&self) -> Response<io::Empty> {
         Response {
+            chunked_threshold: self.chunked_threshold,
+            #[cfg(feature = "range-support")]
+            content_range: self.content_range.clone(),
             data: None,
             data_length: Some(0),
-            status_code: self.status_code,
-            headers: self.headers.clone(),
             filter_headers: self.filter_headers.clone(),
-            chunked_threshold: self.chunked_threshold,
+            headers: self.headers.clone(),
+            status_code: self.status_code,
         }
     }
 }

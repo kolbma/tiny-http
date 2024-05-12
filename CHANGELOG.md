@@ -51,6 +51,8 @@
 
 * _http-0-9_ feature for disabling correct simple HTTP/0.9
 
+* _range-support_ feature for disabling new HTTP Range Header support
+
 * Strict checks of HTTP request line and headers for invalid, not RFC conform byte values
 
 * Methods for Request to get headers by field name with cached lookup

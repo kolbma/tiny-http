@@ -111,6 +111,9 @@ pub use common::{
     HeaderFieldValue, HttpVersion, HttpVersionError, Method, StatusCode,
 };
 pub use common::{limits, LimitsConfig};
+#[cfg(feature = "range-support")]
+#[doc(inline)]
+pub use common::{ByteRange, RangeHeader, RangeUnit};
 use connection_stream::ConnectionStream;
 pub use listener_thread::{IncomingRequests, ListenerThread};
 pub use request::Request;

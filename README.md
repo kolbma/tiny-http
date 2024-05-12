@@ -16,9 +16,9 @@ What does **tiny-http** handle?
  - Requests pipelining
  - HTTPS (using either OpenSSL, Rustls or native-tls)
  - Transfer-Encoding and Content-Encoding
- - Turning user input (eg. POST input) into a contiguous UTF-8 string (**not implemented yet**)
- - Ranges (**not implemented yet**)
+ - Range Requests [RFC 9110](https://datatracker.ietf.org/doc/html/rfc9110#name-range-requests) (only single range; **multipart/byteranges** request produces 416 (Range Not Satisfiable))
  - `Connection: upgrade` (used by websockets)
+ - Turning user input (eg. POST input) into a contiguous UTF-8 string (**not implemented yet**)
 
 Tiny-http handles everything that is related to client connections and data transfers and encoding.
 
@@ -47,12 +47,14 @@ Feature __content-type__ requires __1.70__.
 
 - log: uses log trait to debug and error
 - http-0-9: supporting HTTP/0.9 simple requests
+- range-support: supporting HTTP/1.1 Range Requests
 
 #### Optional features
 
 - content-type: provides usual content type enum with type converters
 - http-0-9: supporting HTTP/0.9 simple requests
 - log: uses log trait to debug and error
+- range-support: supporting HTTP/1.1 Range Requests
 - socket2: provides configurable TCP socket
 
 Select single _ssl_ feature...  

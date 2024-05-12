@@ -48,9 +48,11 @@ use crate::{log, response, Response};
 /// If you want to build fake requests to test your server, use [`TestRequest`](crate::test::TestRequest).
 pub struct Request {
     connection_header: Option<ConnectionHeader>,
+    content_length: Option<usize>,
+    #[cfg(feature = "range-support")]
+    content_range: Option<crate::RangeHeader>,
     #[cfg(feature = "content-type")]
     content_type: Option<crate::ContentType>,
-    content_length: Option<usize>,
     // where to read the body from
     data_reader: Option<Box<dyn DataRead + Send + 'static>>,
     // true if a `100 Continue` response must be sent when `as_reader()` is called
@@ -61,6 +63,8 @@ pub struct Request {
     // If Some, a message must be sent after responding
     notify_when_responded: Option<Sender<()>>,
     path: String,
+    #[cfg(feature = "range-support")]
+    range: Option<crate::RangeHeader>,
     remote_addr: Option<SocketAddr>,
     // if this writer is empty, then the request has been answered
     response_writer: Option<Box<dyn Write + Send + 'static>>,
@@ -143,6 +147,13 @@ impl Request {
     #[inline]
     pub fn content_length(&self) -> Option<usize> {
         self.content_length
+    }
+
+    /// HTTP _Content-Range_ header (only PUT Method)
+    #[cfg(feature = "range-support")]
+    #[must_use]
+    pub fn content_range(&self) -> Option<&crate::RangeHeader> {
+        self.content_range.as_ref()
     }
 
     /// One of the supported [`ContentType`](crate::ContentType) of [`Request`]
@@ -249,6 +260,12 @@ impl Request {
     #[inline]
     pub fn method(&self) -> &Method {
         &self.method
+    }
+
+    /// HTTP _Range_ header
+    #[cfg(feature = "range-support")]
+    pub fn range(&self) -> Option<&crate::RangeHeader> {
+        self.range.as_ref()
     }
 
     /// Returns the address of the client that sent this request.
@@ -522,9 +539,15 @@ impl Request {
             Box::new(io::empty())
         };
 
+        #[cfg(feature = "range-support")]
+        let (content_range, range) =
+            crate::common::range_header::request::create_ranges(version, &method, &headers);
+
         Ok(Request {
             connection_header,
             content_length,
+            #[cfg(feature = "range-support")]
+            content_range,
             #[cfg(feature = "content-type")]
             content_type: headers
                 .header_first(b"Content-Type")
@@ -536,6 +559,8 @@ impl Request {
             method,
             notify_when_responded: None,
             path,
+            #[cfg(feature = "range-support")]
+            range,
             remote_addr,
             response_writer: Some(Box::new(writer)),
             secure,
@@ -555,6 +580,8 @@ impl Request {
         Request {
             connection_header: None,
             content_length: None,
+            #[cfg(feature = "range-support")]
+            content_range: None,
             #[cfg(feature = "content-type")]
             content_type: None,
             data_reader: Some(Box::new(io::empty())),
@@ -564,6 +591,8 @@ impl Request {
             method: Method::Get,
             notify_when_responded: None,
             path,
+            #[cfg(feature = "range-support")]
+            range: None,
             remote_addr,
             response_writer: Some(Box::new(writer)),
             secure,
@@ -615,7 +644,11 @@ impl Request {
         })
     }
 
-    fn respond_impl<R>(&mut self, response: Response<R>) -> Result<(), IoError>
+    fn respond_impl<R>(
+        &mut self,
+        #[cfg(feature = "range-support")] mut response: Response<R>,
+        #[cfg(not(feature = "range-support"))] response: Response<R>,
+    ) -> Result<(), IoError>
     where
         R: Read,
     {
@@ -629,7 +662,25 @@ impl Request {
 
         let mut writer = self.extract_writer_impl();
 
-        let do_not_send_body = self.method == Method::Head;
+        let mut do_not_send_body = false;
+        if self.method == Method::Head {
+            do_not_send_body = true;
+            #[cfg(feature = "range-support")]
+            {
+                use crate::common::static_header;
+                if self.http_version >= HttpVersion::Version1_1 {
+                    response::util::update_optional_header(
+                        response.headers_mut(),
+                        Header::from_bytes(
+                            &static_header::ACCEPT_RANGES_HEADER_FIELD.as_bytes(),
+                            &crate::RangeUnit::Bytes.to_string(),
+                        )
+                        .unwrap(),
+                        false,
+                    );
+                }
+            }
+        }
 
         Self::ignore_client_closing_errors(response.raw_print(
             writer.by_ref(),
@@ -691,6 +742,9 @@ impl Request {
                 self.http_version = HttpVersion::Version1_1;
             }
         }
+
+        #[cfg(feature = "range-support")]
+        crate::common::range_header::request::respond_update_headers(self, response);
     }
 }
 

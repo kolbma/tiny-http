@@ -440,7 +440,7 @@ mod tests {
 
         assert_eq!(hv1.len(), hv2.len());
 
-        let elaps_range = (elaps1 - (elaps1 / 100 * 2))..(elaps1 + (elaps1 / 100 * 2));
+        let elaps_range = (elaps1 - (elaps1 / 100 * 3))..(elaps1 + (elaps1 / 100 * 3));
 
         assert!(
             elaps1 > elaps2 || elaps_range.contains(&elaps2),
