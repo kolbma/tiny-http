@@ -64,7 +64,7 @@ pub struct Request {
     notify_when_responded: Option<Sender<()>>,
     path: String,
     #[cfg(feature = "range-support")]
-    range: Option<crate::RangeHeader>,
+    range: std::cell::RefCell<Option<crate::RangeHeader>>,
     remote_addr: Option<SocketAddr>,
     // if this writer is empty, then the request has been answered
     response_writer: Option<Box<dyn Write + Send + 'static>>,
@@ -264,8 +264,14 @@ impl Request {
 
     /// HTTP _Range_ header
     #[cfg(feature = "range-support")]
-    pub fn range(&self) -> Option<&crate::RangeHeader> {
-        self.range.as_ref()
+    pub fn range(&self) -> Option<crate::RangeHeader> {
+        self.range.borrow().clone()
+    }
+
+    /// Unset HTTP _Range_ header
+    #[cfg(feature = "range-support")]
+    pub fn range_unset(&self) {
+        *self.range.borrow_mut() = None;
     }
 
     /// Returns the address of the client that sent this request.
@@ -560,7 +566,7 @@ impl Request {
             notify_when_responded: None,
             path,
             #[cfg(feature = "range-support")]
-            range,
+            range: std::cell::RefCell::new(range),
             remote_addr,
             response_writer: Some(Box::new(writer)),
             secure,
@@ -592,7 +598,7 @@ impl Request {
             notify_when_responded: None,
             path,
             #[cfg(feature = "range-support")]
-            range: None,
+            range: std::cell::RefCell::new(None),
             remote_addr,
             response_writer: Some(Box::new(writer)),
             secure,

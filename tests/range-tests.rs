@@ -185,6 +185,47 @@ fn range_http_1_1_world4_test() {
 }
 
 #[test]
+fn range_unset_test() {
+    let (server, mut client) = support::new_one_server_one_client();
+
+    let _ = thread::spawn(move || {
+        let mut cycles = 3000 / 20;
+
+        loop {
+            if let Ok(Some(rq)) = server.try_recv() {
+                rq.range_unset();
+                let response = tiny_http::Response::from_string("hello world".to_string());
+                rq.respond(response).unwrap();
+            }
+
+            thread::sleep(Duration::from_millis(20));
+
+            cycles -= 1;
+            if cycles == 0 {
+                break;
+            }
+        }
+    });
+
+    let _ = write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nRange: bytes=0-0\r\n\r\n"
+    );
+
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content);
+
+    assert!(content.starts_with("HTTP/1.1 200 "), "content: {}", content);
+    assert!(!content.contains("Content-Range:"), "content: {}", content);
+    assert!(
+        content.contains("Content-Length: 11\r"),
+        "content: {}",
+        content
+    );
+    assert!(content.contains("hello world"), "content: {}", content);
+}
+
+#[test]
 fn range_unsatified_first_pos_overflow_test() {
     let mut client = support::new_client_to_hello_world_server();
 
@@ -311,9 +352,9 @@ fn range_unknown_range_test() {
     let mut content = String::new();
     let _ = client.read_to_string(&mut content);
 
-    assert!(content.starts_with("HTTP/1.1 416 "), "content: {}", content);
-    assert!(!content.contains("hello world"), "content: {}", content);
-    assert!(!content.contains("hello"), "content: {}", content);
+    assert!(content.starts_with("HTTP/1.1 200 "), "content: {}", content);
+    assert!(content.contains("hello world"), "content: {}", content);
+    assert!(!content.contains("Content-Range:"), "content: {}", content);
 }
 
 #[test]
@@ -368,4 +409,40 @@ fn chunked_range_test() {
     assert!(content.contains("Content-Range:"), "content: {}", content);
     assert!(!content.contains("Content-Length:"), "content: {}", content);
     assert!(content.contains("AAAAAAAAAA"), "content: {}", content);
+}
+
+#[test]
+fn non_status_2xx_range_test() {
+    let (server, mut client) = support::new_one_server_one_client();
+
+    let _ = thread::spawn(move || {
+        let mut cycles = 3000 / 20;
+
+        loop {
+            if let Ok(Some(rq)) = server.try_recv() {
+                let response = tiny_http::Response::empty(403);
+                rq.respond(response).unwrap();
+            }
+
+            thread::sleep(Duration::from_millis(20));
+
+            cycles -= 1;
+            if cycles == 0 {
+                break;
+            }
+        }
+    });
+
+    let _ = write!(
+        client,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nRange: bytes=20000-\r\n\r\n"
+    );
+
+    let mut content = String::new();
+    let _ = client.read_to_string(&mut content);
+
+    assert!(content.starts_with("HTTP/1.1 403 "), "content: {}", content);
+    assert!(!content.contains("Content-Range:"), "content: {}", content);
+    assert!(content.contains("Content-Length:"), "content: {}", content);
+    assert!(content.contains("Forbidden"), "content: {}", content);
 }

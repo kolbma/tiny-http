@@ -229,7 +229,14 @@ impl TryFrom<&[u8]> for RangeHeader {
         let mut ranges = Vec::new();
 
         for range in ranges_split {
-            ranges.push(ByteRange::try_from(range)?);
+            let range = ByteRange::try_from(range).unwrap_or(ByteRange {
+                complete_length: None,
+                first_pos: None,
+                is_unsatisfied: true,
+                last_pos: None,
+            });
+
+            ranges.push(range);
         }
 
         Ok(Self { range_unit, ranges })
@@ -373,15 +380,16 @@ pub(crate) mod request {
     where
         R: Read,
     {
-        if request.http_version() >= HttpVersion::Version1_1 {
-            if let Some(header) =
-                request.header_first(&crate::common::static_header::RANGE_HEADER_FIELD.as_bytes())
-            {
+        if request.http_version() >= HttpVersion::Version1_1
+            && (200..300).contains(&response.status_code())
+        {
+            if let Some(header) = &request.range() {
                 let mut is_ok = false;
 
-                if let Ok(header) = crate::RangeHeader::try_from(header) {
-                    if header.range_unit == crate::RangeUnit::Bytes && header.ranges.len() == 1 {
-                        let range = header.ranges[0];
+                if header.range_unit == crate::RangeUnit::Bytes && header.ranges.len() == 1 {
+                    let range = header.ranges[0];
+
+                    if !range.is_unsatisfied {
                         let first_pos = range.first_pos.unwrap_or(0);
                         #[allow(clippy::cast_possible_wrap)]
                         let data_length = response.data_length().unwrap_or_default() as isize;
@@ -423,9 +431,9 @@ pub(crate) mod request {
                                 is_ok = true;
                             }
                         }
-                    } else if header.range_unit == crate::RangeUnit::None {
-                        is_ok = true;
                     }
+                } else if header.range_unit == crate::RangeUnit::None {
+                    is_ok = true;
                 }
 
                 if !is_ok {
@@ -802,6 +810,22 @@ mod tests {
                 RangeHeader::try_from(&header).unwrap_or_else(|()| panic!("v: {:?}", v));
             assert_eq!(range_header.range_unit, RangeUnit::Bytes);
             assert_eq!(range_header.ranges, results[v.0]);
+        }
+    }
+
+    #[test]
+    fn range_header_overflow_test() {
+        let values = [
+            usize::MAX.to_string(),
+            String::from("-") + &usize::MAX.to_string(),
+        ];
+
+        for v in values.iter().enumerate() {
+            let header = Header::try_from(format!("Range: bytes={}", v.1).as_bytes()).unwrap();
+            let range_header =
+                RangeHeader::try_from(&header).unwrap_or_else(|()| panic!("v: {:?}", v));
+            assert_eq!(range_header.range_unit, RangeUnit::Bytes);
+            assert!(range_header.ranges[0].is_unsatisfied);
         }
     }
 
