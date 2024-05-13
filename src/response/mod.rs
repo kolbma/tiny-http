@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fs::File;
-use std::io::{self, Cursor, Read, Result as IoResult, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::sync::mpsc::Receiver;
 
 use crate::common::{
@@ -14,8 +14,10 @@ use crate::common::{
 
 pub use self::standard::{Standard, StandardResponse};
 use self::transfer_encoding::TransferEncoding;
+pub use result::{Data, ResponseResult};
 
 mod date_header;
+mod result;
 mod standard;
 mod transfer_encoding;
 pub(super) mod util;
@@ -344,7 +346,7 @@ where
         request_headers: Option<&HeaderData>,
         mut do_not_send_body: bool,
         upgrade: Option<&str>,
-    ) -> IoResult<()> {
+    ) -> ResponseResult {
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
             self.status_code,
             &request_headers.and_then(|h| h.header(b"TE", None)),
@@ -403,7 +405,7 @@ where
             util::write_body(&mut self, transfer_encoding, writer)?;
         }
 
-        Ok(())
+        self.into()
     }
 
     /// Retrieves the current value of the `Response` status code
@@ -675,7 +677,7 @@ where
         request_headers: Option<&HeaderData>,
         do_not_send_body: bool,
         upgrade: Option<&str>,
-    ) -> IoResult<()> {
+    ) -> ResponseResult {
         let mut transfer_encoding = Some(util::choose_transfer_encoding(
             self.status_code,
             &request_headers.and_then(|h| h.header(b"TE", None)),
@@ -755,7 +757,7 @@ where
             }
         }
 
-        Ok(())
+        self.into()
     }
 }
 

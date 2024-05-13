@@ -113,7 +113,7 @@ pub(crate) fn new_client_to_hello_world_server_2(
         loop {
             if let Ok(Some(rq)) = server.try_recv() {
                 let response = tiny_http::Response::from_string("hello world".to_string());
-                rq.respond(response).unwrap();
+                let _ = rq.respond(response).unwrap();
             }
 
             thread::sleep(Duration::from_millis(20));
@@ -186,9 +186,9 @@ pub(crate) fn new_client_to_echo_server_2(
                     response = response
                         .with_data(std::io::Cursor::new(data[..offset].to_vec()), Some(offset));
 
-                    rq.respond(response).unwrap();
+                    let _ = rq.respond(response).unwrap();
                 } else {
-                    rq.respond(tiny_http::Response::empty(405)).unwrap();
+                    let _ = rq.respond(tiny_http::Response::empty(405)).unwrap();
                 }
             }
 
@@ -244,7 +244,7 @@ pub(crate) fn new_client_to_hello_world_server_with_cfg(socket_config: &SocketCo
         loop {
             if let Ok(Some(rq)) = server.try_recv() {
                 let response = tiny_http::Response::from_string("hello world".to_string());
-                rq.respond(response).unwrap();
+                let _ = rq.respond(response).unwrap();
             }
 
             thread::sleep(Duration::from_millis(20));

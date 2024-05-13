@@ -195,12 +195,12 @@ fn content_length_shorter_no_close() {
     assert!(result.is_ok(), "err: {:?}", result.unwrap_err());
     assert!(content.ends_with("hel"), "content: {}", content);
 
-    rq.respond(tiny_http::Response::empty(204)).unwrap();
+    let _ = rq.respond(tiny_http::Response::empty(204)).unwrap();
 
     // handle rest data of get request
     let rq = server.try_recv().unwrap().unwrap();
     assert_ne!(rq.method(), &tiny_http::Method::Get);
-    rq.respond(tiny_http::Response::empty(204)).unwrap();
+    let _ = rq.respond(tiny_http::Response::empty(204)).unwrap();
 }
 
 #[test]
@@ -383,7 +383,7 @@ fn custom_content_type_response_header() {
     .unwrap();
 
     let request = server.recv().unwrap();
-    request
+    let _ = request
         .respond(
             tiny_http::Response::from_string("{\"custom\": \"Content-Type\"}")
                 .with_header(

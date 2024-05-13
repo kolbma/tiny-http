@@ -1,14 +1,16 @@
 use std::convert::TryFrom;
-use std::io::Error as IoError;
-use std::io::{self, Cursor, ErrorKind as IoErrorKind, Read, Write};
+use std::io::{
+    self, Cursor, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write,
+};
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
 use crate::common::{ConnectionHeader, ConnectionValue, Header, HeaderData, HttpVersion, Method};
+use crate::response::Data;
 use crate::response::Standard::Continue100;
 use crate::stream_traits::{DataRead, DataReadWrite};
 use crate::util::{EqualReader, FusedReader, NotifyOnDrop};
-use crate::{log, response, Response};
+use crate::{log, response, Response, ResponseResult};
 
 /// Represents an HTTP request made by a client.
 ///
@@ -312,7 +314,7 @@ impl Request {
     /// - `std::io::Error` on response problem
     ///
     #[inline]
-    pub fn respond<R>(mut self, response: Response<R>) -> Result<(), IoError>
+    pub fn respond<R>(mut self, response: Response<R>) -> ResponseResult
     where
         R: Read,
     {
@@ -336,7 +338,7 @@ impl Request {
     /// - `std::io::Error` on response problem
     ///
     #[inline]
-    pub fn respond_ref<R>(mut self, response: &mut Response<R>) -> Result<(), IoError>
+    pub fn respond_ref<R>(mut self, response: &mut Response<R>) -> ResponseResult
     where
         R: Read + Clone,
     {
@@ -632,7 +634,7 @@ impl Request {
         self.data_reader.take().expect("extract reader failed")
     }
 
-    fn ignore_client_closing_errors(result: io::Result<()>) -> io::Result<()> {
+    fn ignore_client_closing_errors(result: IoResult<()>) -> IoResult<()> {
         result.or_else(|err| match err.kind() {
             IoErrorKind::BrokenPipe
             | IoErrorKind::ConnectionAborted
@@ -654,7 +656,7 @@ impl Request {
         &mut self,
         #[cfg(feature = "range-support")] mut response: Response<R>,
         #[cfg(not(feature = "range-support"))] response: Response<R>,
-    ) -> Result<(), IoError>
+    ) -> ResponseResult
     where
         R: Read,
     {
@@ -688,18 +690,30 @@ impl Request {
             }
         }
 
-        Self::ignore_client_closing_errors(response.raw_print(
+        let data = Data::from(&response);
+
+        let res = response.raw_print(
             writer.by_ref(),
             self.http_version,
             Some(&self.headers),
             do_not_send_body,
             None,
-        ))?;
+        );
 
-        Self::ignore_client_closing_errors(writer.flush())
+        match res {
+            res @ Ok(_) => {
+                Self::ignore_client_closing_errors(writer.flush())?;
+                res
+            }
+            Err(err) => {
+                Self::ignore_client_closing_errors(IoResult::Err(err))?;
+                Self::ignore_client_closing_errors(writer.flush())?;
+                Ok(data)
+            }
+        }
     }
 
-    fn respond_ref_impl<R>(&mut self, response: &Response<R>) -> Result<(), IoError>
+    fn respond_ref_impl<R>(&mut self, response: &Response<R>) -> ResponseResult
     where
         R: Read + Clone,
     {
@@ -715,15 +729,27 @@ impl Request {
 
         let do_not_send_body = self.method == Method::Head;
 
-        Self::ignore_client_closing_errors(response.raw_print_ref(
+        let data = Data::from(response);
+
+        let res = response.raw_print_ref(
             writer.by_ref(),
             self.http_version,
             Some(&self.headers),
             do_not_send_body,
             None,
-        ))?;
+        );
 
-        Self::ignore_client_closing_errors(writer.flush())
+        match res {
+            res @ Ok(_) => {
+                Self::ignore_client_closing_errors(writer.flush())?;
+                res
+            }
+            Err(err) => {
+                Self::ignore_client_closing_errors(IoResult::Err(err))?;
+                Self::ignore_client_closing_errors(writer.flush())?;
+                Ok(data)
+            }
+        }
     }
 
     fn respond_update_headers<R>(&mut self, response: &mut Response<R>)

@@ -119,7 +119,7 @@ pub use listener_thread::{IncomingRequests, ListenerThread};
 pub use request::Request;
 pub use request_handler::{FnRequestHandler, RequestHandler};
 #[doc(inline)]
-pub use response::{Response, ResponseBox};
+pub use response::{Response, ResponseBox, ResponseResult};
 pub use server::State;
 pub use server_config::ServerConfig;
 pub use socket_config::SocketConfig;

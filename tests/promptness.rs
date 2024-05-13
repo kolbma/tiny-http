@@ -149,7 +149,7 @@ mod prompt_responses {
         let _ = spawn(move || loop {
             // server attempts to respond immediately
             let req = server.recv().unwrap();
-            req.respond(Response::empty(400)).unwrap();
+            let _ = req.respond(Response::empty(400)).unwrap();
         });
 
         let client = Arc::new(client);

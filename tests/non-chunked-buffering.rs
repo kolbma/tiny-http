@@ -65,7 +65,7 @@ fn responding_to_closed_client() {
     drop(stream);
 
     let mut reader = big_response_reader();
-    request
+    let _ = request
         .respond(identity_served(&mut reader))
         .expect("Successful");
 
@@ -89,7 +89,7 @@ fn responding_to_non_consuming_client() {
 
     // Client still connected, but not reading anything
     let _ = std::thread::spawn(move || {
-        request
+        let _ = request
             .respond(identity_served(&mut reader))
             .expect("Successful");
     });

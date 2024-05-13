@@ -17,7 +17,7 @@ fn basic_handling() {
     let request = server.recv().unwrap();
     assert!(*request.method() == tiny_http::Method::Get);
     //assert!(request.url() == "/");
-    request
+    let _ = request
         .respond(tiny_http::Response::from_string("hello world".to_owned()))
         .unwrap();
 

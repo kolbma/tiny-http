@@ -474,6 +474,9 @@ pub(crate) mod response {
     pub(crate) fn range_content_length(content_range: &crate::RangeHeader) -> Option<usize> {
         if content_range.range_unit == crate::RangeUnit::Bytes && !content_range.ranges.is_empty() {
             let range = content_range.ranges[0];
+            if range.is_unsatisfied {
+                return Some(0);
+            }
             if let Some(first_pos) = range.first_pos {
                 if let Some(last_pos) = range.last_pos {
                     #[allow(clippy::cast_sign_loss)]

@@ -16,6 +16,6 @@ fn main() {
         );
 
         let response = Response::from_string("hello world");
-        request.respond(response).expect("Responded");
+        let _ = request.respond(response).expect("Responded");
     }
 }

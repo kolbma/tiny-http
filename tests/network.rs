@@ -284,16 +284,18 @@ fn responses_reordered() {
         let rq2 = server.recv().unwrap();
 
         let _ = thread::spawn(move || {
-            rq2.respond(tiny_http::Response::from_string(
-                "second request".to_owned(),
-            ))
-            .unwrap();
+            let _ = rq2
+                .respond(tiny_http::Response::from_string(
+                    "second request".to_owned(),
+                ))
+                .unwrap();
         });
 
         thread::sleep(Duration::from_millis(100));
 
         let _ = thread::spawn(move || {
-            rq1.respond(tiny_http::Response::from_string("first request".to_owned()))
+            let _ = rq1
+                .respond(tiny_http::Response::from_string("first request".to_owned()))
                 .unwrap();
         });
     });
@@ -317,7 +319,7 @@ fn no_transfer_encoding_on_204() {
         let rq = server.recv().unwrap();
 
         let resp = tiny_http::Response::empty(tiny_http::StatusCode(204));
-        rq.respond(resp).unwrap();
+        let _ = rq.respond(resp).unwrap();
     });
 
     let mut content = String::new();

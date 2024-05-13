@@ -195,7 +195,7 @@ fn range_unset_test() {
             if let Ok(Some(rq)) = server.try_recv() {
                 rq.range_unset();
                 let response = tiny_http::Response::from_string("hello world".to_string());
-                rq.respond(response).unwrap();
+                let _ = rq.respond(response).unwrap();
             }
 
             thread::sleep(Duration::from_millis(20));
@@ -385,7 +385,7 @@ fn chunked_range_test() {
         loop {
             if let Ok(Some(rq)) = server.try_recv() {
                 let response = tiny_http::Response::from_slice(data);
-                rq.respond(response).unwrap();
+                let _ = rq.respond(response).unwrap();
             }
 
             thread::sleep(Duration::from_millis(20));
@@ -421,7 +421,7 @@ fn non_status_2xx_range_test() {
         loop {
             if let Ok(Some(rq)) = server.try_recv() {
                 let response = tiny_http::Response::empty(403);
-                rq.respond(response).unwrap();
+                let _ = rq.respond(response).unwrap();
             }
 
             thread::sleep(Duration::from_millis(20));

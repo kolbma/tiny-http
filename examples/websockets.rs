@@ -252,12 +252,13 @@ fn main() {
 
             // provide html + websocket javascript to browser
             if !upgrade_requested {
-                return match (request.method(), request.url()) {
+                let _ = match (request.method(), request.url()) {
                     (Method::Get, "/") => request.respond(home_page(port)),
                     (Method::Get, _) => request.respond(Response::from(404)),
                     _ => request.respond(Response::from(405)),
                 }
                 .unwrap();
+                return;
             }
 
             // browser upgrades to WS
@@ -267,7 +268,7 @@ fn main() {
                 b"13".as_ref()
             );
             if !is_version_compatible {
-                return request
+                let _ = request
                     .respond(
                         Response::from(426)
                             .with_header(
@@ -276,6 +277,7 @@ fn main() {
                             .unwrap(),
                     )
                     .unwrap();
+                return;
             }
 
             // getting the value of Sec-WebSocket-Key and convert for Sec-WebSocket-Accept
