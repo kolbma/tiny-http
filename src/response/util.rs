@@ -79,7 +79,7 @@ where
     S: Into<StatusCode>,
 {
     // TODO: check status codes with body supported
-    matches!(status_code.into().0, 100..=199 | 204 | 205 | 304) // status code 1xx, 204, 205 and 304 MUST not include a body
+    matches!(status_code.into().0, 100..=199 | 204 | 205 | 304 | 416) // status code 1xx, 204, 205 and 304 MUST not include a body
 }
 
 #[inline]

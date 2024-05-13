@@ -406,6 +406,7 @@ pub(crate) mod request {
                                         last_pos as usize,
                                         response.data_length(),
                                     );
+                                    super::response::update_headers_for_range(response);
                                     is_ok = true;
                                 } else if last_pos < 0 {
                                     if let Some(data_length) = response.data_length() {
@@ -417,6 +418,7 @@ pub(crate) mod request {
                                                     data_length - 1,
                                                     response.data_length(),
                                                 );
+                                                super::response::update_headers_for_range(response);
                                                 is_ok = true;
                                             }
                                         }
@@ -428,6 +430,7 @@ pub(crate) mod request {
                                     data_length - 1,
                                     response.data_length(),
                                 );
+                                super::response::update_headers_for_range(response);
                                 is_ok = true;
                             }
                         }
@@ -438,6 +441,7 @@ pub(crate) mod request {
 
                 if !is_ok {
                     response.set_content_range_unsatisfied();
+                    super::response::update_headers_for_range(response);
                 }
             }
         }
@@ -453,7 +457,7 @@ pub(crate) mod response {
     use crate::{
         common,
         response::{util, Standard},
-        Header, HeaderFieldValue, HttpVersion, Response,
+        Header, HeaderFieldValue, Response,
     };
 
     /// Check _Range_ for unsatisfied value
@@ -511,7 +515,7 @@ pub(crate) mod response {
         io::copy(reader, writer)
     }
 
-    /// Set [`RangeHeader`](crate::RangeHeader) for _Content-Range_
+    /// Set `content_range` of [`Response`]
     pub(crate) fn set_content_range<R: Read>(
         response: &mut Response<R>,
         first_pos: usize,
@@ -543,45 +547,6 @@ pub(crate) mod response {
         });
     }
 
-    #[inline]
-    pub(crate) fn set_content_range_header<R: Read>(
-        do_not_send_body: &mut bool,
-        headers: &mut Vec<Header>,
-        http_version: HttpVersion,
-        response: &mut Response<R>,
-    ) {
-        if http_version > HttpVersion::Version1_0 {
-            if let Some(content_range) = &response.content_range {
-                if let Ok(range_header) = Header::try_from(content_range) {
-                    headers.push(range_header);
-                    if response.is_content_range_unsatisfied() {
-                        response.set_status_code(Standard::RangeNotSatisfiable416.into());
-                        util::update_optional_hashset(
-                            response.filter_headers_mut(),
-                            [
-                                common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
-                                common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
-                            ],
-                        );
-                        *do_not_send_body = true;
-                    } else if let Some(content_length) = range_content_length(content_range) {
-                        let mut b = [0u8; 20];
-                        let content_length =
-                            crate::response::util::number_to_bytes!(content_length, &mut b, 20);
-                        if let Some(header) = headers.iter_mut().find(|h| {
-                            h.field == *common::static_header::CONTENT_LENGTH_HEADER_FIELD
-                        }) {
-                            header.value = HeaderFieldValue::try_from(content_length).unwrap();
-                        }
-                        response.set_status_code(Standard::PartialContent206.into());
-                    } else {
-                        response.set_status_code(Standard::PartialContent206.into());
-                    }
-                }
-            }
-        }
-    }
-
     /// Mark _Range_ as unsatisfied value
     pub(crate) fn set_content_range_unsatisfied<R: Read>(response: &mut Response<R>) {
         if let Some(content_range) = &mut response.content_range {
@@ -598,6 +563,58 @@ pub(crate) mod response {
                     is_unsatisfied: true,
                 }],
             });
+        }
+    }
+
+    /// Update HTTP header _Content-Length_ for range
+    #[inline]
+    pub(crate) fn update_header_content_length<R: Read>(
+        response: &mut Response<R>,
+        headers: &mut [Header],
+    ) {
+        if let Some(content_range) = &response.content_range {
+            if let Some(content_length) = range_content_length(content_range) {
+                let mut b = [0u8; 20];
+                let content_length =
+                    crate::response::util::number_to_bytes!(content_length, &mut b, 20);
+
+                // let headers = response.headers_mut().as_mut().unwrap();
+                if let Some(header) = headers
+                    .iter_mut()
+                    .find(|h| h.field == *common::static_header::CONTENT_LENGTH_HEADER_FIELD)
+                {
+                    header.value = HeaderFieldValue::try_from(content_length).unwrap();
+                }
+            }
+        }
+    }
+
+    /// Update HTTP headers of [`Response`] for range handling
+    #[inline]
+    pub(crate) fn update_headers_for_range<R: Read>(response: &mut Response<R>) {
+        let range_header = response
+            .content_range
+            .as_ref()
+            .and_then(|content_range| Header::try_from(content_range).ok());
+
+        if let Some(range_header) = range_header {
+            {
+                let headers = response.headers_mut().as_mut().unwrap();
+                headers.push(range_header);
+            }
+
+            if response.is_content_range_unsatisfied() {
+                response.set_status_code(Standard::RangeNotSatisfiable416.into());
+                util::update_optional_hashset(
+                    response.filter_headers_mut(),
+                    [
+                        common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
+                        common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
+                    ],
+                );
+            } else {
+                response.set_status_code(Standard::PartialContent206.into());
+            }
         }
     }
 }

@@ -231,7 +231,7 @@ where
         common::range_header::response::is_content_range_unsatisfied(self)
     }
 
-    /// Set [`RangeHeader`](crate::RangeHeader) for _Content-Range_
+    /// Set `content_range` of [`Response`]
     #[cfg(feature = "range-support")]
     #[inline]
     pub fn set_content_range(
@@ -367,6 +367,9 @@ where
             // preparing headers for transfer
             util::update_te_headers(&mut headers, transfer_encoding, &self.data_length);
 
+            #[cfg(feature = "range-support")]
+            common::range_header::response::update_header_content_length(&mut self, &mut headers);
+
             // if assert fails the `Vec` at beginning should get a new capacity
             debug_assert!(headers.len() <= 6, "headers.len: {}", headers.len());
 
@@ -381,14 +384,6 @@ where
                         common::static_header::CONTENT_LENGTH_HEADER_FIELD.clone(),
                         common::static_header::CONTENT_TYPE_HEADER_FIELD.clone(),
                     ],
-                );
-            } else {
-                #[cfg(feature = "range-support")]
-                common::range_header::response::set_content_range_header(
-                    &mut do_not_send_body,
-                    &mut headers,
-                    http_version,
-                    &mut self,
                 );
             }
 
