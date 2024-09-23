@@ -1,4 +1,4 @@
-#![cfg(feature = "content-type")]
+// #![cfg(feature = "content-type")]
 
 use ascii::{AsciiStr, AsciiString};
 use std::collections::HashMap;
@@ -215,6 +215,7 @@ impl TryFrom<&AsciiStr> for ContentType {
 }
 
 #[cfg(test)]
+#[cfg(feature = "content-type")]
 mod tests {
     use std::{convert::TryFrom, str::FromStr};
 
@@ -223,6 +224,7 @@ mod tests {
     use super::{content_type_lookup, CONTENT_TYPES};
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn content_types_test() {
         assert!(!CONTENT_TYPES.is_empty());
         for (n, mt) in CONTENT_TYPES.iter().enumerate() {
@@ -236,6 +238,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn content_type_lookup_test() {
         assert!(!CONTENT_TYPES.is_empty());
         for mt in CONTENT_TYPES {

@@ -1,4 +1,4 @@
-#![cfg(feature = "range-support")]
+// #![cfg(feature = "range-support")]
 //! HTTP/1.1 supports [Range Requests](https://datatracker.ietf.org/doc/html/rfc9110#name-range-requests)
 
 use std::convert::TryFrom;
@@ -623,6 +623,7 @@ pub(crate) mod response {
 }
 
 #[cfg(test)]
+#[cfg(feature = "range-support")]
 mod tests {
     use std::str::FromStr;
 

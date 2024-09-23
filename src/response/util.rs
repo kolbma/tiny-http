@@ -164,7 +164,11 @@ macro_rules! number_to_bytes {
 
         while n > 0 {
             idx -= 1;
-            #[allow(clippy::cast_possible_truncation, trivial_numeric_casts)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                trivial_numeric_casts
+            )]
             // truncation intended
             {
                 digits[idx] = (n % 10) as u8 + 48;
@@ -300,6 +304,7 @@ pub(super) fn write_body<R: Read, W: Write>(
 }
 
 #[inline]
+#[allow(clippy::byte_char_slices)]
 pub(super) fn write_message_header<W>(
     writer: &mut W,
     http_version: HttpVersion,
