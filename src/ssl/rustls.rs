@@ -119,9 +119,12 @@ impl RustlsContext {
             }
         };
 
-        let tls_conf = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certificate_chain, private_key)?;
+        let tls_conf = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::aws_lc_rs::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()?
+        .with_no_client_auth()
+        .with_single_cert(certificate_chain, private_key)?;
 
         Ok(Self(Arc::new(tls_conf)))
     }
