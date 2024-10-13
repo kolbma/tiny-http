@@ -240,11 +240,13 @@ impl ListenerThread {
     where
         T: RequestHandler + 'static,
     {
+        let close = Arc::clone(&self.close);
         let exit_cond_var = Arc::new((Mutex::new(self.thread_nr), Condvar::new()));
         let lt = Arc::new(self);
         let request_handler = Arc::new(request_handler);
 
         for n in 1..=lt.thread_nr {
+            let close = Arc::clone(&close);
             let lt = Arc::clone(&lt);
             let inner_exit_cond = Arc::clone(&exit_cond_var);
             let request_handler = Arc::clone(&request_handler);
@@ -253,7 +255,9 @@ impl ListenerThread {
                 let id = thread::current().id();
                 log::debug!("enter start_request_handling [{:?}]", id);
 
-                request_handler.handle_requests(&lt);
+                while !close.load(Ordering::Relaxed) {
+                    request_handler.handle_requests(&lt);
+                }
 
                 {
                     let (mtx, cond) = inner_exit_cond.as_ref();
