@@ -24,13 +24,21 @@ mod support;
 /// When all threads exited there would be an ungraceful server exit.
 #[test]
 fn ssl_handshake_fail_test() {
+    #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+    let ssl = Some(SslConfig::new(
+        include_bytes!("./ssl_tests/cert.pem").to_vec(),
+        include_bytes!("./ssl_tests/key.pem").to_vec(),
+    ));
+    #[cfg(feature = "ssl-native-tls")]
+    let ssl = Some(SslConfig::new(
+        include_bytes!("./ssl_tests/cert.pem").to_vec(),
+        include_bytes!("./ssl_tests/key-pkcs8.pem").to_vec(),
+    ));
+
     let mut server = tiny_http::MTServer::new(&ServerConfig {
         addr: ConfigListenAddr::from_socket_addrs("127.0.0.1:0").unwrap(),
         exit_graceful_timeout: Duration::from_secs(1),
-        ssl: Some(SslConfig::new(
-            include_bytes!("./ssl_tests/cert.pem").to_vec(),
-            include_bytes!("./ssl_tests/key.pem").to_vec(),
-        )),
+        ssl,
         worker_thread_nr: 2,
         ..ServerConfig::default()
     })
@@ -89,7 +97,7 @@ Priority: u=0, i\r\n";
         }
     });
 
-    thread::sleep(Duration::from_secs(2)); // wait some time for connections in thread
+    thread::sleep(Duration::from_secs(1)); // wait some time for connections in thread
     assert_ne!(server.num_connections(), 0); // still have connections
 
     stop_thread.store(true, Ordering::Relaxed);
@@ -99,7 +107,7 @@ Priority: u=0, i\r\n";
     let inner_stop_server = Arc::clone(&stop_server);
 
     let jh = thread::spawn(move || {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(100));
         inner_stop_server.store(true, Ordering::Relaxed);
     });
 
