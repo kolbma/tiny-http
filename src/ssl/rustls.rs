@@ -98,26 +98,8 @@ impl RustlsContext {
             return Err("Couldn't extract certificate chain from config.".into());
         }
 
-        let private_key = {
-            let pkcs8_keys = rustls_pemfile::pkcs8_private_keys(&mut private_key.as_slice())
-                .collect::<Vec<Result<_, _>>>();
-            let is_pkcs8_keys_empty = pkcs8_keys.is_empty();
-
-            if let Some(pkcs8_key) = pkcs8_keys.into_iter().find_map(Result::ok) {
-                rustls::pki_types::PrivateKeyDer::Pkcs8(pkcs8_key)
-            } else if !is_pkcs8_keys_empty {
-                return Err(
-                    "file contains invalid pkcs8 private key (encrypted keys are not supported)"
-                        .into(),
-                );
-            } else {
-                let rsa_key = rustls_pemfile::rsa_private_keys(&mut private_key.as_slice())
-                    .flatten()
-                    .next()
-                    .expect("file contains invalid rsa private key");
-                rustls::pki_types::PrivateKeyDer::Pkcs1(rsa_key)
-            }
-        };
+        let private_key = rustls_pemfile::private_key(&mut private_key.as_slice())?
+            .ok_or("no private key in pem")?;
 
         let tls_conf = rustls::ServerConfig::builder_with_provider(Arc::new(
             rustls::crypto::aws_lc_rs::default_provider(),
